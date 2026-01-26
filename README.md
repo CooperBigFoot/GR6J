@@ -1,5 +1,7 @@
 # GR6J
 
+🟢 **Active Development** — This repository is part of an ongoing project and actively maintained.
+
 A Python implementation of the **GR6J** (Génie Rural à 6 paramètres Journalier) lumped conceptual rainfall-runoff model for daily streamflow simulation.
 
 ## Overview
@@ -120,8 +122,3 @@ For detailed mathematical equations and model structure, see [`docs/MODEL_DEFINI
 
 - Pushpalatha, R., Perrin, C., Le Moine, N., Mathevet, T. and Andréassian, V. (2011). **A downward structural sensitivity analysis of hydrological models to improve low-flow simulation.** *Journal of Hydrology*, 411(1-2), 66-76. [doi:10.1016/j.jhydrol.2011.09.034](https://doi.org/10.1016/j.jhydrol.2011.09.034)
 
-## Maintenance Status
-
-🟢 **Active Development**
-
-This repository is part of an ongoing project and actively maintained.
