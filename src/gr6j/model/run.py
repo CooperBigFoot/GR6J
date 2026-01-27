@@ -8,6 +8,7 @@ This module provides the main entry points for running the GR6J model:
 import numpy as np
 import pandas as pd
 
+from ..cemaneige import CemaNeige, CemaNeigeSingleLayerState, cemaneige_step
 from .constants import B, C
 from .processes import (
     direct_branch,
@@ -148,6 +149,9 @@ def run(
     params: Parameters,
     data: pd.DataFrame,
     initial_state: State | None = None,
+    *,
+    snow: CemaNeige | None = None,
+    initial_snow_state: CemaNeigeSingleLayerState | None = None,
 ) -> pd.DataFrame:
     """Run the GR6J model over a timeseries.
 
@@ -158,18 +162,19 @@ def run(
         params: Model parameters (X1-X6).
         data: Input DataFrame with 'precip' and 'pet' columns.
             Must have these columns with precipitation and potential
-            evapotranspiration values in mm/day.
-        initial_state: Initial model state. If None, uses State.initialize(params)
-            which sets production store to 30% of X1, routing store to 50% of X3,
-            and exponential store to 0.
+            evapotranspiration values in mm/day. When snow is provided,
+            a 'temp' column is also required.
+        initial_state: Initial model state. If None, uses State.initialize(params).
+        snow: Optional CemaNeige parameters for snow module. When provided,
+            the model will preprocess precipitation through the snow module,
+            converting snow to liquid water before GR6J processing.
+        initial_snow_state: Optional initial CemaNeige state. If None and
+            snow is provided, uses CemaNeigeSingleLayerState.initialize().
 
     Returns:
         DataFrame with all model fluxes (same index as input data).
-        Columns include: pet, precip, production_store, net_rainfall,
-        storage_infiltration, actual_et, percolation, effective_rainfall,
-        q9, q1, routing_store, exchange, actual_exchange_routing,
-        actual_exchange_direct, actual_exchange_total, qr, qrexp,
-        exponential_store, qd, streamflow.
+        When snow is None: 20 columns (standard GR6J outputs).
+        When snow is provided: 32 columns (20 GR6J + 11 CemaNeige + 1 precip_raw).
 
     Raises:
         ValueError: If input data is missing required columns.
@@ -193,8 +198,21 @@ def run(
     if missing:
         raise ValueError(f"Input data missing required columns: {missing}")
 
+    # Additional validation when snow module is enabled
+    if snow is not None and "temp" not in data.columns:
+        raise ValueError("Input data must include 'temp' column when snow module is enabled")
+
     # Initialize state if not provided
     state = State.initialize(params) if initial_state is None else initial_state
+
+    # Initialize snow state if snow module enabled
+    snow_state: CemaNeigeSingleLayerState | None = None
+    if snow is not None:
+        snow_state = (
+            CemaNeigeSingleLayerState.initialize(snow.mean_annual_solid_precip)
+            if initial_snow_state is None
+            else initial_snow_state
+        )
 
     # Compute unit hydrograph ordinates once
     uh1_ordinates, uh2_ordinates = compute_uh_ordinates(params.x4)
@@ -206,6 +224,22 @@ def run(
         precip = float(data["precip"].iloc[idx])
         pet = float(data["pet"].iloc[idx])
 
+        # Store raw precip for output when snow enabled
+        precip_raw = precip
+
+        # Run snow module if enabled
+        snow_fluxes: dict[str, float] = {}
+        if snow is not None and snow_state is not None:
+            temp = float(data["temp"].iloc[idx])
+            snow_state, snow_fluxes = cemaneige_step(
+                state=snow_state,
+                params=snow,
+                precip=precip,
+                temp=temp,
+            )
+            # Use snow output as GR6J precipitation input
+            precip = snow_fluxes["snow_pliq_and_melt"]
+
         state, fluxes = step(
             state=state,
             params=params,
@@ -214,6 +248,11 @@ def run(
             uh1_ordinates=uh1_ordinates,
             uh2_ordinates=uh2_ordinates,
         )
+
+        # Combine fluxes
+        if snow is not None:
+            fluxes["precip_raw"] = precip_raw
+            fluxes.update(snow_fluxes)
 
         all_fluxes.append(fluxes)
 

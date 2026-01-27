@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from gr6j.cemaneige import CemaNeige, CemaNeigeSingleLayerState
 from gr6j.model.run import run, step
 from gr6j.model.types import Parameters, State
 
@@ -33,6 +34,21 @@ EXPECTED_FLUX_KEYS = {
     "exponential_store",
     "qd",
     "streamflow",
+}
+
+# Expected CemaNeige snow flux keys - all 11 snow outputs
+EXPECTED_SNOW_FLUX_KEYS = {
+    "snow_pliq",
+    "snow_psol",
+    "snow_pack",
+    "snow_thermal_state",
+    "snow_gratio",
+    "snow_pot_melt",
+    "snow_melt",
+    "snow_pliq_and_melt",
+    "snow_temp",
+    "snow_gthreshold",
+    "snow_glocalmax",
 }
 
 
@@ -378,3 +394,232 @@ class TestRun:
             f"Mass balance error too large: {mass_balance_error:.2f} mm "
             f"(precip={total_precip:.2f}, Q={total_streamflow:.2f}, ET={total_et:.2f})"
         )
+
+
+class TestRunWithSnow:
+    """Tests for run() with CemaNeige snow module integration."""
+
+    @pytest.fixture
+    def typical_snow_params(self) -> CemaNeige:
+        """Typical CemaNeige parameters."""
+        return CemaNeige(ctg=0.97, kf=2.5, mean_annual_solid_precip=150.0)
+
+    @pytest.fixture
+    def input_df_with_temp(self) -> pd.DataFrame:
+        """Input DataFrame with precip, pet, and temp columns."""
+        return pd.DataFrame(
+            {
+                "precip": [10.0, 5.0, 0.0, 15.0, 8.0],
+                "pet": [3.0, 4.0, 5.0, 3.5, 4.0],
+                "temp": [-5.0, 0.0, 5.0, -2.0, 8.0],
+            }
+        )
+
+    def test_backward_compatibility_without_snow(
+        self,
+        typical_params: Parameters,
+        simple_input_df: pd.DataFrame,
+    ) -> None:
+        """Existing run() calls work unchanged without snow parameter."""
+        result = run(typical_params, simple_input_df)
+
+        assert isinstance(result, pd.DataFrame)
+        assert set(result.columns) == EXPECTED_FLUX_KEYS
+        assert len(result.columns) == 20
+
+    def test_snow_parameter_adds_columns(
+        self,
+        typical_params: Parameters,
+        typical_snow_params: CemaNeige,
+        input_df_with_temp: pd.DataFrame,
+    ) -> None:
+        """When snow is provided, output has 32 columns."""
+        result = run(typical_params, input_df_with_temp, snow=typical_snow_params)
+
+        # 20 GR6J + 11 CemaNeige + 1 precip_raw = 32
+        assert len(result.columns) == 32
+
+        # Check all expected columns present
+        assert EXPECTED_FLUX_KEYS.issubset(set(result.columns))
+        assert EXPECTED_SNOW_FLUX_KEYS.issubset(set(result.columns))
+        assert "precip_raw" in result.columns
+
+    def test_raises_when_temp_missing_with_snow(
+        self,
+        typical_params: Parameters,
+        typical_snow_params: CemaNeige,
+        simple_input_df: pd.DataFrame,
+    ) -> None:
+        """ValueError when snow enabled but temp column missing."""
+        # simple_input_df has only precip and pet, no temp
+        with pytest.raises(ValueError, match="temp"):
+            run(typical_params, simple_input_df, snow=typical_snow_params)
+
+    def test_precip_raw_equals_input_precip(
+        self,
+        typical_params: Parameters,
+        typical_snow_params: CemaNeige,
+        input_df_with_temp: pd.DataFrame,
+    ) -> None:
+        """precip_raw column matches original input precipitation."""
+        result = run(typical_params, input_df_with_temp, snow=typical_snow_params)
+
+        np.testing.assert_array_almost_equal(
+            result["precip_raw"].values,
+            input_df_with_temp["precip"].values,
+        )
+
+    def test_precip_differs_from_precip_raw_with_snow(
+        self,
+        typical_params: Parameters,
+        typical_snow_params: CemaNeige,
+        input_df_with_temp: pd.DataFrame,
+    ) -> None:
+        """precip column differs from precip_raw (snow preprocessing)."""
+        result = run(typical_params, input_df_with_temp, snow=typical_snow_params)
+
+        # At least some values should differ (cold days accumulate snow)
+        # Not all precip passes through unchanged
+        assert not np.allclose(result["precip"].values, result["precip_raw"].values)
+
+    def test_cold_day_snow_accumulates(
+        self,
+        typical_params: Parameters,
+        typical_snow_params: CemaNeige,
+    ) -> None:
+        """Cold days with precip accumulate snow."""
+        data = pd.DataFrame(
+            {
+                "precip": [10.0, 10.0, 10.0],
+                "pet": [2.0, 2.0, 2.0],
+                "temp": [-10.0, -10.0, -10.0],  # Very cold
+            }
+        )
+
+        result = run(typical_params, data, snow=typical_snow_params)
+
+        # Snow pack should increase over cold period
+        assert result["snow_pack"].iloc[-1] > result["snow_pack"].iloc[0]
+        # All precip should be snow (solid_fraction = 1.0)
+        np.testing.assert_array_almost_equal(
+            result["snow_psol"].values,
+            data["precip"].values,
+        )
+
+    def test_warm_period_snow_passes_through(
+        self,
+        typical_params: Parameters,
+        typical_snow_params: CemaNeige,
+    ) -> None:
+        """Warm period with no snow: precip passes through unchanged."""
+        data = pd.DataFrame(
+            {
+                "precip": [10.0, 10.0, 10.0],
+                "pet": [2.0, 2.0, 2.0],
+                "temp": [15.0, 15.0, 15.0],  # Warm: all rain
+            }
+        )
+
+        result = run(typical_params, data, snow=typical_snow_params)
+
+        # All precip should be liquid rain
+        np.testing.assert_array_almost_equal(
+            result["snow_pliq"].values,
+            data["precip"].values,
+        )
+        # Snow pack should be zero
+        assert (result["snow_pack"] == 0.0).all()
+        # pliq_and_melt = precip (no melt since no snow)
+        np.testing.assert_array_almost_equal(
+            result["snow_pliq_and_melt"].values,
+            data["precip"].values,
+        )
+
+    def test_snow_melt_produces_streamflow(
+        self,
+        typical_params: Parameters,
+        typical_snow_params: CemaNeige,
+    ) -> None:
+        """Snow accumulation followed by warm period produces melt."""
+        # Longer simulation: snow accumulates, then melts over extended warm period
+        cold_days = 5
+        warm_days = 10
+        data = pd.DataFrame(
+            {
+                "precip": [20.0] * cold_days + [0.0] * warm_days,  # Precip then dry
+                "pet": [1.0] * cold_days + [4.0] * warm_days,
+                "temp": [-10.0] * cold_days + [10.0] * warm_days,  # Cold then warm
+            }
+        )
+
+        result = run(typical_params, data, snow=typical_snow_params)
+
+        # Snow should accumulate during cold period
+        assert result["snow_pack"].iloc[cold_days - 1] > 0.0
+        # Melt should occur during warm period (may need thermal state to warm up)
+        assert result["snow_melt"].iloc[cold_days:].sum() > 0.0
+        # Streamflow should be produced
+        assert result["streamflow"].sum() > 0.0
+
+    def test_uses_custom_initial_snow_state(
+        self,
+        typical_params: Parameters,
+        typical_snow_params: CemaNeige,
+        input_df_with_temp: pd.DataFrame,
+    ) -> None:
+        """Custom initial_snow_state is respected."""
+        # Custom state with existing snow pack
+        custom_snow_state = CemaNeigeSingleLayerState(
+            g=100.0,  # 100mm snow pack
+            etg=0.0,  # At melting point
+            gthreshold=135.0,
+            glocalmax=135.0,
+        )
+
+        result_custom = run(
+            typical_params,
+            input_df_with_temp,
+            snow=typical_snow_params,
+            initial_snow_state=custom_snow_state,
+        )
+        result_default = run(
+            typical_params,
+            input_df_with_temp,
+            snow=typical_snow_params,
+        )
+
+        # First row should differ due to different initial snow
+        assert result_custom["snow_pack"].iloc[0] != result_default["snow_pack"].iloc[0]
+
+    def test_output_index_matches_input_with_snow(
+        self,
+        typical_params: Parameters,
+        typical_snow_params: CemaNeige,
+    ) -> None:
+        """Output index matches input when snow enabled."""
+        custom_index = pd.date_range("2020-01-01", periods=5, freq="D")
+        data = pd.DataFrame(
+            {
+                "precip": [10.0] * 5,
+                "pet": [3.0] * 5,
+                "temp": [0.0] * 5,
+            },
+            index=custom_index,
+        )
+
+        result = run(typical_params, data, snow=typical_snow_params)
+
+        pd.testing.assert_index_equal(result.index, data.index)
+
+    def test_all_values_finite_with_snow(
+        self,
+        typical_params: Parameters,
+        typical_snow_params: CemaNeige,
+        input_df_with_temp: pd.DataFrame,
+    ) -> None:
+        """All output values are finite when snow enabled."""
+        result = run(typical_params, input_df_with_temp, snow=typical_snow_params)
+
+        assert result.notna().all().all()
+        for col in result.columns:
+            assert np.all(np.isfinite(result[col].values)), f"Column '{col}' has non-finite values"

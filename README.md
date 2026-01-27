@@ -6,7 +6,7 @@ A Python implementation of the **GR6J** (Génie Rural à 6 paramètres Journalie
 
 ## Overview
 
-GR6J is an extension of the widely-used GR4J model, developed by INRAE (France), with an additional **exponential store** to improve low-flow simulation. It operates in simulation mode (concurrent prediction), making it ideal for:
+GR6J is an extension of the widely-used GR4J model, developed by INRAE (France), with an additional **exponential store** to improve low-flow simulation. This implementation includes the optional **CemaNeige** snow module for cold-climate catchments. It operates in simulation mode (concurrent prediction), making it ideal for:
 
 - Ungauged basin prediction
 - Climate change impact studies
@@ -18,10 +18,10 @@ GR6J is an extension of the widely-used GR4J model, developed by INRAE (France),
 |----------|-------|
 | Time step | Daily |
 | Spatial resolution | Lumped (catchment-scale) |
-| Parameters | 6 calibrated parameters |
+| Parameters | 6 GR6J + 2 CemaNeige (optional) |
 | Stores | 3 (Production, Routing, Exponential) |
 | Unit hydrographs | 2 (UH1 and UH2) |
-| Inputs | Precipitation (P), Potential Evapotranspiration (E) |
+| Inputs | Precipitation (P), PET (E), Temperature (T, optional) |
 | Output | Streamflow at catchment outlet (Q) |
 
 ## Installation
@@ -96,6 +96,42 @@ custom_state = State(
 results = run(params, data, initial_state=custom_state)
 ```
 
+### Snow Module (CemaNeige)
+
+For cold-climate catchments, enable the CemaNeige snow module to preprocess precipitation through snow accumulation and melt:
+
+```python
+from gr6j import Parameters, run
+from gr6j.cemaneige import CemaNeige
+
+# Define model parameters
+params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5)
+
+# Define snow module parameters
+snow = CemaNeige(
+    ctg=0.97,                    # Thermal state coefficient [-]
+    kf=2.5,                      # Degree-day melt factor [mm/°C/day]
+    mean_annual_solid_precip=150.0,  # Mean annual solid precipitation [mm]
+)
+
+# Input data must include temperature
+data = pd.DataFrame({
+    'precip': [10.0, 5.0, 0.0, 15.0, 8.0],
+    'pet': [3.0, 4.0, 5.0, 3.5, 4.0],
+    'temp': [-5.0, 0.0, 5.0, -2.0, 8.0],  # °C
+})
+
+# Run with snow module
+results = run(params, data, snow=snow)
+
+# Access snow outputs
+print(results['snow_pack'])       # Snow water equivalent [mm]
+print(results['snow_melt'])       # Daily melt [mm/day]
+print(results['streamflow'])      # Total streamflow [mm/day]
+```
+
+When snow is enabled, the model outputs 32 columns (20 GR6J + 11 CemaNeige + 1 precip_raw).
+
 ### Single Timestep Execution
 
 ```python
@@ -124,11 +160,24 @@ print(f"Streamflow: {fluxes['streamflow']:.2f} mm/day")
 | **X5** | Intercatchment exchange threshold | - | [-4, 4] |
 | **X6** | Exponential store scale parameter | mm | [0.01, 20] |
 
+### CemaNeige Parameters (Snow Module)
+
+| Parameter | Description | Unit | Typical Range |
+|-----------|-------------|------|---------------|
+| **CTG** | Thermal state weighting coefficient | - | [0, 1] |
+| **Kf** | Degree-day melt factor | mm/°C/day | [1, 10] |
+| **MeanAnSolidPrecip** | Mean annual solid precipitation | mm | Catchment-specific |
+
+For detailed CemaNeige equations and algorithm, see [`docs/CEMANEIGE.md`](docs/CEMANEIGE.md).
+
 ## Documentation
 
-For detailed mathematical equations and model structure, see [`docs/MODEL_DEFINITION.md`](docs/MODEL_DEFINITION.md).
+- Model equations: [`docs/MODEL_DEFINITION.md`](docs/MODEL_DEFINITION.md)
+- Snow module: [`docs/CEMANEIGE.md`](docs/CEMANEIGE.md)
 
 ## References
 
 - Pushpalatha, R., Perrin, C., Le Moine, N., Mathevet, T. and Andréassian, V. (2011). **A downward structural sensitivity analysis of hydrological models to improve low-flow simulation.** *Journal of Hydrology*, 411(1-2), 66-76. [doi:10.1016/j.jhydrol.2011.09.034](https://doi.org/10.1016/j.jhydrol.2011.09.034)
+
+- Valéry, A., Andréassian, V., & Perrin, C. (2014). **'As simple as possible but not simpler': What is useful in a temperature-based snow-accounting routine?** Part 1 – Comparison of six snow accounting routines on 380 catchments. *Journal of Hydrology*, 517, 1166-1175. [doi:10.1016/j.jhydrol.2014.04.059](https://doi.org/10.1016/j.jhydrol.2014.04.059)
 
