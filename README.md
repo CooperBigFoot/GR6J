@@ -65,20 +65,30 @@ print(results['streamflow'])
 
 ### Custom Initial State
 
-```python
-from gr6j import Parameters, State, run
+There are two ways to initialize model state:
 
+**Option 1: Derived from parameters (recommended for fresh runs)**
+
+```python
 params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5)
 
-# Initialize with custom state
-initial_state = State.initialize(params)  # Default: S=30% X1, R=50% X3, Exp=0
+# Computes defaults as fractions of capacity:
+#   production_store = 0.30 * X1 = 105 mm
+#   routing_store    = 0.50 * X3 = 45 mm
+#   exponential_store = 0 mm
+initial_state = State.initialize(params)
+```
 
-# Or create a fully custom state
+**Option 2: Explicit values in mm (useful for warm-starting from a previous run)**
+
+```python
 import numpy as np
+
+# Values are direct mm amounts, independent of parameters
 custom_state = State(
-    production_store=200.0,
-    routing_store=50.0,
-    exponential_store=0.0,
+    production_store=200.0,      # mm
+    routing_store=50.0,          # mm
+    exponential_store=0.0,       # mm (can be negative)
     uh1_states=np.zeros(20),
     uh2_states=np.zeros(40),
 )
