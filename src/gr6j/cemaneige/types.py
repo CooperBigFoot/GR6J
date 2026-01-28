@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 _PARAMETER_BOUNDS: dict[str, tuple[float, float]] = {
     "ctg": (0.0, 1.0),
     "kf": (0.0, 200.0),
-    "mean_annual_solid_precip": (0.0, 10000.0),
 }
 
 
@@ -47,20 +46,19 @@ class CemaNeige:
     Parameters that define the snow model behavior. This is a frozen dataclass
     to prevent accidental modification during simulation.
 
+    Note: mean_annual_solid_precip is now specified via the Catchment class,
+    as it is a static catchment property rather than a calibration parameter.
+
     Attributes:
         ctg: Thermal state weighting coefficient [-]. Controls the inertia of
             the snow pack thermal state. Typical range [0, 1].
         kf: Degree-day melt factor [mm/°C/day]. Controls the rate of snowmelt
             per degree above the melt threshold. Typical range [1, 10], but
             can extend to [0, 200] for extreme cases.
-        mean_annual_solid_precip: Mean annual solid precipitation [mm]. Used
-            to compute the gthreshold value for hysteresis. Typical range
-            [0, 10000].
     """
 
     ctg: float  # Thermal state weighting coefficient [-]
     kf: float  # Degree-day melt factor [mm/°C/day]
-    mean_annual_solid_precip: float  # Mean annual solid precipitation [mm]
 
     # Class-level reference to bounds for external access
     BOUNDS: ClassVar[dict[str, tuple[float, float]]] = _PARAMETER_BOUNDS

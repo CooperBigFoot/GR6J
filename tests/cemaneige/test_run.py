@@ -28,13 +28,13 @@ EXPECTED_FLUX_KEYS = {
 @pytest.fixture
 def typical_params() -> CemaNeige:
     """Typical CemaNeige parameters."""
-    return CemaNeige(ctg=0.97, kf=2.5, mean_annual_solid_precip=150.0)
+    return CemaNeige(ctg=0.97, kf=2.5)
 
 
 @pytest.fixture
-def initialized_state(typical_params: CemaNeige) -> CemaNeigeSingleLayerState:
+def initialized_state() -> CemaNeigeSingleLayerState:
     """Initial model state from parameters."""
-    return CemaNeigeSingleLayerState.initialize(typical_params.mean_annual_solid_precip)
+    return CemaNeigeSingleLayerState.initialize(mean_annual_solid_precip=150.0)
 
 
 class TestCemaNeigeStepe:

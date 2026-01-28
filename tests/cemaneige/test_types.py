@@ -16,15 +16,14 @@ class TestCemaNeige:
 
     def test_creates_with_valid_parameters(self) -> None:
         """CemaNeige instantiates correctly with typical values."""
-        params = CemaNeige(ctg=0.97, kf=2.5, mean_annual_solid_precip=150.0)
+        params = CemaNeige(ctg=0.97, kf=2.5)
 
         assert params.ctg == 0.97
         assert params.kf == 2.5
-        assert params.mean_annual_solid_precip == 150.0
 
     def test_is_frozen_dataclass(self) -> None:
         """CemaNeige is immutable - assigning to fields should raise."""
-        params = CemaNeige(ctg=0.97, kf=2.5, mean_annual_solid_precip=150.0)
+        params = CemaNeige(ctg=0.97, kf=2.5)
 
         with pytest.raises(AttributeError):
             params.ctg = 0.5  # type: ignore[misc]
@@ -32,7 +31,7 @@ class TestCemaNeige:
     def test_warns_when_ctg_below_range(self, caplog: pytest.LogCaptureFixture) -> None:
         """Warning logged when ctg is below 0."""
         with caplog.at_level(logging.WARNING):
-            CemaNeige(ctg=-0.1, kf=2.5, mean_annual_solid_precip=150.0)
+            CemaNeige(ctg=-0.1, kf=2.5)
 
         assert len(caplog.records) == 1
         assert "ctg" in caplog.text
@@ -41,7 +40,7 @@ class TestCemaNeige:
     def test_warns_when_ctg_above_range(self, caplog: pytest.LogCaptureFixture) -> None:
         """Warning logged when ctg exceeds 1."""
         with caplog.at_level(logging.WARNING):
-            CemaNeige(ctg=1.5, kf=2.5, mean_annual_solid_precip=150.0)
+            CemaNeige(ctg=1.5, kf=2.5)
 
         assert len(caplog.records) == 1
         assert "ctg" in caplog.text
@@ -50,7 +49,7 @@ class TestCemaNeige:
     def test_warns_when_kf_below_range(self, caplog: pytest.LogCaptureFixture) -> None:
         """Warning logged when kf is below 0."""
         with caplog.at_level(logging.WARNING):
-            CemaNeige(ctg=0.97, kf=-1.0, mean_annual_solid_precip=150.0)
+            CemaNeige(ctg=0.97, kf=-1.0)
 
         assert len(caplog.records) == 1
         assert "kf" in caplog.text
@@ -59,34 +58,16 @@ class TestCemaNeige:
     def test_warns_when_kf_above_range(self, caplog: pytest.LogCaptureFixture) -> None:
         """Warning logged when kf exceeds 200."""
         with caplog.at_level(logging.WARNING):
-            CemaNeige(ctg=0.97, kf=250.0, mean_annual_solid_precip=150.0)
+            CemaNeige(ctg=0.97, kf=250.0)
 
         assert len(caplog.records) == 1
         assert "kf" in caplog.text
         assert "outside typical range" in caplog.text
 
-    def test_warns_when_mean_annual_solid_precip_below_range(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Warning logged when mean_annual_solid_precip is below 0."""
-        with caplog.at_level(logging.WARNING):
-            CemaNeige(ctg=0.97, kf=2.5, mean_annual_solid_precip=-10.0)
-
-        assert len(caplog.records) == 1
-        assert "mean_annual_solid_precip" in caplog.text
-        assert "outside typical range" in caplog.text
-
-    def test_warns_when_mean_annual_solid_precip_above_range(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Warning logged when mean_annual_solid_precip exceeds 10000."""
-        with caplog.at_level(logging.WARNING):
-            CemaNeige(ctg=0.97, kf=2.5, mean_annual_solid_precip=15000.0)
-
-        assert len(caplog.records) == 1
-        assert "mean_annual_solid_precip" in caplog.text
-        assert "outside typical range" in caplog.text
-
     def test_no_warning_within_typical_ranges(self, caplog: pytest.LogCaptureFixture) -> None:
         """No warnings logged when all parameters are within typical ranges."""
         with caplog.at_level(logging.WARNING):
-            CemaNeige(ctg=0.97, kf=2.5, mean_annual_solid_precip=150.0)
+            CemaNeige(ctg=0.97, kf=2.5)
 
         assert len(caplog.records) == 0
 
@@ -95,18 +76,16 @@ class TestCemaNeige:
         assert hasattr(CemaNeige, "BOUNDS")
         assert "ctg" in CemaNeige.BOUNDS
         assert "kf" in CemaNeige.BOUNDS
-        assert "mean_annual_solid_precip" in CemaNeige.BOUNDS
 
     def test_bounds_contains_correct_ranges(self) -> None:
         """BOUNDS contains expected ranges for each parameter."""
         assert CemaNeige.BOUNDS["ctg"] == (0.0, 1.0)
         assert CemaNeige.BOUNDS["kf"] == (0.0, 200.0)
-        assert CemaNeige.BOUNDS["mean_annual_solid_precip"] == (0.0, 10000.0)
 
     def test_warns_multiple_parameters_out_of_range(self, caplog: pytest.LogCaptureFixture) -> None:
         """Multiple warnings logged when multiple parameters are out of range."""
         with caplog.at_level(logging.WARNING):
-            CemaNeige(ctg=-0.5, kf=300.0, mean_annual_solid_precip=150.0)
+            CemaNeige(ctg=-0.5, kf=300.0)
 
         assert len(caplog.records) == 2
         assert "ctg" in caplog.text
@@ -115,14 +94,14 @@ class TestCemaNeige:
     def test_at_lower_boundary_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """No warning when parameter is exactly at lower boundary."""
         with caplog.at_level(logging.WARNING):
-            CemaNeige(ctg=0.0, kf=0.0, mean_annual_solid_precip=0.0)
+            CemaNeige(ctg=0.0, kf=0.0)
 
         assert len(caplog.records) == 0
 
     def test_at_upper_boundary_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """No warning when parameter is exactly at upper boundary."""
         with caplog.at_level(logging.WARNING):
-            CemaNeige(ctg=1.0, kf=200.0, mean_annual_solid_precip=10000.0)
+            CemaNeige(ctg=1.0, kf=200.0)
 
         assert len(caplog.records) == 0
 

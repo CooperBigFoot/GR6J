@@ -8,9 +8,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from gr6j.cemaneige import CemaNeige, CemaNeigeSingleLayerState
+from gr6j import Catchment, CemaNeige, ForcingData, ModelOutput, Parameters, State
+from gr6j.cemaneige import CemaNeigeSingleLayerState
 from gr6j.model.run import run, step
-from gr6j.model.types import Parameters, State
 
 # Expected flux keys returned by step() - all 20 MISC outputs
 EXPECTED_FLUX_KEYS = {
@@ -36,8 +36,9 @@ EXPECTED_FLUX_KEYS = {
     "streamflow",
 }
 
-# Expected CemaNeige snow flux keys - all 11 snow outputs
+# Expected CemaNeige snow flux keys - all 12 snow outputs (including precip_raw)
 EXPECTED_SNOW_FLUX_KEYS = {
+    "precip_raw",
     "snow_pliq",
     "snow_psol",
     "snow_pack",
@@ -66,13 +67,12 @@ def typical_params() -> Parameters:
 
 
 @pytest.fixture
-def simple_input_df() -> pd.DataFrame:
-    """Simple DataFrame with precip and pet columns for 5 days."""
-    return pd.DataFrame(
-        {
-            "precip": [10.0, 5.0, 0.0, 15.0, 2.0],
-            "pet": [3.0, 4.0, 5.0, 2.0, 3.5],
-        }
+def simple_forcing() -> ForcingData:
+    """Simple ForcingData with precip and pet for 5 days."""
+    return ForcingData(
+        time=pd.date_range("2020-01-01", periods=5, freq="D").values,
+        precip=np.array([10.0, 5.0, 0.0, 15.0, 2.0]),
+        pet=np.array([3.0, 4.0, 5.0, 2.0, 3.5]),
     )
 
 
@@ -245,60 +245,36 @@ class TestStep:
 class TestRun:
     """Tests for the run() function - timeseries execution."""
 
-    def test_returns_dataframe_with_correct_columns(
+    def test_returns_model_output_with_correct_fields(
         self,
         typical_params: Parameters,
-        simple_input_df: pd.DataFrame,
+        simple_forcing: ForcingData,
     ) -> None:
-        """Result DataFrame should have all flux columns."""
-        result = run(typical_params, simple_input_df)
+        """Result should be ModelOutput with all expected GR6J fields."""
+        result = run(typical_params, simple_forcing)
 
-        assert isinstance(result, pd.DataFrame)
-        assert set(result.columns) == EXPECTED_FLUX_KEYS
+        assert isinstance(result, ModelOutput)
+        assert set(result.gr6j.to_dict().keys()) == EXPECTED_FLUX_KEYS
 
-    def test_output_index_matches_input(
+    def test_output_length_matches_input(
         self,
         typical_params: Parameters,
     ) -> None:
-        """Output DataFrame should have the same index as input."""
-        # Create input with a custom index
-        custom_index = pd.date_range("2020-01-01", periods=10, freq="D")
-        input_df = pd.DataFrame(
-            {
-                "precip": np.random.uniform(0, 20, 10),
-                "pet": np.random.uniform(1, 6, 10),
-            },
-            index=custom_index,
+        """Output should have the same length as input forcing."""
+        forcing = ForcingData(
+            time=pd.date_range("2020-01-01", periods=10, freq="D").values,
+            precip=np.random.default_rng(42).uniform(0, 20, 10),
+            pet=np.random.default_rng(42).uniform(1, 6, 10),
         )
 
-        result = run(typical_params, input_df)
+        result = run(typical_params, forcing)
 
-        pd.testing.assert_index_equal(result.index, input_df.index)
-
-    def test_raises_on_missing_precip_column(
-        self,
-        typical_params: Parameters,
-    ) -> None:
-        """Should raise ValueError when 'precip' column is missing."""
-        input_df = pd.DataFrame({"pet": [3.0, 4.0, 5.0]})
-
-        with pytest.raises(ValueError, match="precip"):
-            run(typical_params, input_df)
-
-    def test_raises_on_missing_pet_column(
-        self,
-        typical_params: Parameters,
-    ) -> None:
-        """Should raise ValueError when 'pet' column is missing."""
-        input_df = pd.DataFrame({"precip": [10.0, 5.0, 0.0]})
-
-        with pytest.raises(ValueError, match="pet"):
-            run(typical_params, input_df)
+        assert len(result) == len(forcing)
 
     def test_uses_provided_initial_state(
         self,
         typical_params: Parameters,
-        simple_input_df: pd.DataFrame,
+        simple_forcing: ForcingData,
     ) -> None:
         """Custom initial state should be respected."""
         # Create a custom initial state with specific values
@@ -310,28 +286,28 @@ class TestRun:
             uh2_states=np.zeros(40),
         )
 
-        result_custom = run(typical_params, simple_input_df, initial_state=custom_state)
-        result_default = run(typical_params, simple_input_df)
+        result_custom = run(typical_params, simple_forcing, initial_state=custom_state)
+        result_default = run(typical_params, simple_forcing)
 
         # Results should differ due to different initial states
         # Compare first row streamflow - should be different
-        assert result_custom["streamflow"].iloc[0] != result_default["streamflow"].iloc[0]
+        assert result_custom.gr6j.streamflow[0] != result_default.gr6j.streamflow[0]
 
     def test_uses_default_initial_state_when_none(
         self,
         typical_params: Parameters,
-        simple_input_df: pd.DataFrame,
+        simple_forcing: ForcingData,
     ) -> None:
         """When initial_state is None, State.initialize should be used."""
         # Run with explicit None
-        result_none = run(typical_params, simple_input_df, initial_state=None)
+        result_none = run(typical_params, simple_forcing, initial_state=None)
 
         # Run with explicit initialized state (should match)
         default_state = State.initialize(typical_params)
-        result_explicit = run(typical_params, simple_input_df, initial_state=default_state)
+        result_explicit = run(typical_params, simple_forcing, initial_state=default_state)
 
         # Results should be identical
-        pd.testing.assert_frame_equal(result_none, result_explicit)
+        np.testing.assert_array_equal(result_none.gr6j.streamflow, result_explicit.gr6j.streamflow)
 
     def test_multi_timestep_simulation(
         self,
@@ -340,39 +316,37 @@ class TestRun:
         """Run simulation for 10+ days and verify outputs are reasonable."""
         # Create 15 days of synthetic input data
         n_days = 15
-        np.random.seed(42)  # For reproducibility
-        input_df = pd.DataFrame(
-            {
-                "precip": np.random.uniform(0, 25, n_days),
-                "pet": np.random.uniform(2, 6, n_days),
-            }
+        rng = np.random.default_rng(42)  # For reproducibility
+        forcing = ForcingData(
+            time=pd.date_range("2020-01-01", periods=n_days, freq="D").values,
+            precip=rng.uniform(0, 25, n_days),
+            pet=rng.uniform(2, 6, n_days),
         )
 
-        result = run(typical_params, input_df)
+        result = run(typical_params, forcing)
 
         # Verify correct length
         assert len(result) == n_days
 
         # Streamflow should be non-negative throughout
-        assert (result["streamflow"] >= 0).all()
+        assert (result.gr6j.streamflow >= 0).all()
 
         # All values should be finite
-        assert result.notna().all().all()
-        for col in result.columns:
-            assert np.all(np.isfinite(result[col].values)), f"Column '{col}' has non-finite values"
+        for key, values in result.gr6j.to_dict().items():
+            assert np.all(np.isfinite(values)), f"Field '{key}' has non-finite values"
 
         # Production store should stay within bounds [0, x1]
-        assert (result["production_store"] >= 0).all()
-        assert (result["production_store"] <= typical_params.x1).all()
+        assert (result.gr6j.production_store >= 0).all()
+        assert (result.gr6j.production_store <= typical_params.x1).all()
 
         # Routing store should stay within bounds [0, x3]
-        assert (result["routing_store"] >= 0).all()
-        assert (result["routing_store"] <= typical_params.x3).all()
+        assert (result.gr6j.routing_store >= 0).all()
+        assert (result.gr6j.routing_store <= typical_params.x3).all()
 
         # Verify water balance makes sense: inputs should produce some outputs
-        total_precip = input_df["precip"].sum()
-        total_streamflow = result["streamflow"].sum()
-        total_et = result["actual_et"].sum()
+        total_precip = forcing.precip.sum()
+        total_streamflow = result.gr6j.streamflow.sum()
+        total_et = result.gr6j.actual_et.sum()
 
         # Over a reasonable period, outputs should be > 0 given positive inputs
         assert total_streamflow > 0, "No streamflow generated despite precipitation"
@@ -381,11 +355,11 @@ class TestRun:
         # Total outputs should not exceed total inputs (mass balance check)
         # Allow some tolerance due to storage changes
         storage_change = (
-            result["production_store"].iloc[-1]
+            result.gr6j.production_store[-1]
             - 0.3 * typical_params.x1
-            + result["routing_store"].iloc[-1]
+            + result.gr6j.routing_store[-1]
             - 0.5 * typical_params.x3
-            + result["exponential_store"].iloc[-1]
+            + result.gr6j.exponential_store[-1]
         )
         # Rough mass balance: P = Q + ET + dS (ignoring exchange for x2=0)
         mass_balance_error = abs(total_precip - total_streamflow - total_et - storage_change)
@@ -400,172 +374,186 @@ class TestRunWithSnow:
     """Tests for run() with CemaNeige snow module integration."""
 
     @pytest.fixture
-    def typical_snow_params(self) -> CemaNeige:
-        """Typical CemaNeige parameters."""
-        return CemaNeige(ctg=0.97, kf=2.5, mean_annual_solid_precip=150.0)
+    def typical_snow_params(self) -> Parameters:
+        """Typical GR6J parameters with CemaNeige snow module."""
+        return Parameters(
+            x1=350.0,
+            x2=0.0,
+            x3=90.0,
+            x4=1.7,
+            x5=0.0,
+            x6=5.0,
+            snow=CemaNeige(ctg=0.97, kf=2.5),
+        )
 
     @pytest.fixture
-    def input_df_with_temp(self) -> pd.DataFrame:
-        """Input DataFrame with precip, pet, and temp columns."""
-        return pd.DataFrame(
-            {
-                "precip": [10.0, 5.0, 0.0, 15.0, 8.0],
-                "pet": [3.0, 4.0, 5.0, 3.5, 4.0],
-                "temp": [-5.0, 0.0, 5.0, -2.0, 8.0],
-            }
+    def typical_catchment(self) -> Catchment:
+        """Typical catchment with snow module properties."""
+        return Catchment(mean_annual_solid_precip=150.0)
+
+    @pytest.fixture
+    def forcing_with_temp(self) -> ForcingData:
+        """ForcingData with precip, pet, and temp for 5 days."""
+        return ForcingData(
+            time=pd.date_range("2020-01-01", periods=5, freq="D").values,
+            precip=np.array([10.0, 5.0, 0.0, 15.0, 8.0]),
+            pet=np.array([3.0, 4.0, 5.0, 3.5, 4.0]),
+            temp=np.array([-5.0, 0.0, 5.0, -2.0, 8.0]),
         )
 
     def test_backward_compatibility_without_snow(
         self,
         typical_params: Parameters,
-        simple_input_df: pd.DataFrame,
+        simple_forcing: ForcingData,
     ) -> None:
         """Existing run() calls work unchanged without snow parameter."""
-        result = run(typical_params, simple_input_df)
+        result = run(typical_params, simple_forcing)
 
-        assert isinstance(result, pd.DataFrame)
-        assert set(result.columns) == EXPECTED_FLUX_KEYS
-        assert len(result.columns) == 20
+        assert isinstance(result, ModelOutput)
+        assert set(result.gr6j.to_dict().keys()) == EXPECTED_FLUX_KEYS
+        assert result.snow is None
 
-    def test_snow_parameter_adds_columns(
+    def test_snow_parameter_adds_snow_output(
         self,
-        typical_params: Parameters,
-        typical_snow_params: CemaNeige,
-        input_df_with_temp: pd.DataFrame,
+        typical_snow_params: Parameters,
+        typical_catchment: Catchment,
+        forcing_with_temp: ForcingData,
     ) -> None:
-        """When snow is provided, output has 32 columns."""
-        result = run(typical_params, input_df_with_temp, snow=typical_snow_params)
+        """When snow is enabled, output has snow field populated."""
+        result = run(typical_snow_params, forcing_with_temp, catchment=typical_catchment)
 
-        # 20 GR6J + 11 CemaNeige + 1 precip_raw = 32
-        assert len(result.columns) == 32
-
-        # Check all expected columns present
-        assert EXPECTED_FLUX_KEYS.issubset(set(result.columns))
-        assert EXPECTED_SNOW_FLUX_KEYS.issubset(set(result.columns))
-        assert "precip_raw" in result.columns
+        assert result.snow is not None
+        assert set(result.snow.to_dict().keys()) == EXPECTED_SNOW_FLUX_KEYS
 
     def test_raises_when_temp_missing_with_snow(
         self,
-        typical_params: Parameters,
-        typical_snow_params: CemaNeige,
-        simple_input_df: pd.DataFrame,
+        typical_snow_params: Parameters,
+        typical_catchment: Catchment,
+        simple_forcing: ForcingData,
     ) -> None:
-        """ValueError when snow enabled but temp column missing."""
-        # simple_input_df has only precip and pet, no temp
-        with pytest.raises(ValueError, match="temp"):
-            run(typical_params, simple_input_df, snow=typical_snow_params)
+        """ValueError when snow enabled but temp field missing."""
+        # simple_forcing has only precip and pet, no temp
+        with pytest.raises(ValueError, match="forcing.temp required when snow module enabled"):
+            run(typical_snow_params, simple_forcing, catchment=typical_catchment)
+
+    def test_raises_when_catchment_missing_with_snow(
+        self,
+        typical_snow_params: Parameters,
+        forcing_with_temp: ForcingData,
+    ) -> None:
+        """ValueError when snow enabled but catchment not provided."""
+        with pytest.raises(ValueError, match="catchment required when snow module enabled"):
+            run(typical_snow_params, forcing_with_temp)
 
     def test_precip_raw_equals_input_precip(
         self,
-        typical_params: Parameters,
-        typical_snow_params: CemaNeige,
-        input_df_with_temp: pd.DataFrame,
+        typical_snow_params: Parameters,
+        typical_catchment: Catchment,
+        forcing_with_temp: ForcingData,
     ) -> None:
-        """precip_raw column matches original input precipitation."""
-        result = run(typical_params, input_df_with_temp, snow=typical_snow_params)
+        """precip_raw field matches original input precipitation."""
+        result = run(typical_snow_params, forcing_with_temp, catchment=typical_catchment)
 
         np.testing.assert_array_almost_equal(
-            result["precip_raw"].values,
-            input_df_with_temp["precip"].values,
+            result.snow.precip_raw,
+            forcing_with_temp.precip,
         )
 
     def test_precip_differs_from_precip_raw_with_snow(
         self,
-        typical_params: Parameters,
-        typical_snow_params: CemaNeige,
-        input_df_with_temp: pd.DataFrame,
+        typical_snow_params: Parameters,
+        typical_catchment: Catchment,
+        forcing_with_temp: ForcingData,
     ) -> None:
-        """precip column differs from precip_raw (snow preprocessing)."""
-        result = run(typical_params, input_df_with_temp, snow=typical_snow_params)
+        """precip to GR6J differs from precip_raw (snow preprocessing)."""
+        result = run(typical_snow_params, forcing_with_temp, catchment=typical_catchment)
 
         # At least some values should differ (cold days accumulate snow)
         # Not all precip passes through unchanged
-        assert not np.allclose(result["precip"].values, result["precip_raw"].values)
+        assert not np.allclose(result.gr6j.precip, result.snow.precip_raw)
 
     def test_cold_day_snow_accumulates(
         self,
-        typical_params: Parameters,
-        typical_snow_params: CemaNeige,
+        typical_snow_params: Parameters,
+        typical_catchment: Catchment,
     ) -> None:
         """Cold days with precip accumulate snow."""
-        data = pd.DataFrame(
-            {
-                "precip": [10.0, 10.0, 10.0],
-                "pet": [2.0, 2.0, 2.0],
-                "temp": [-10.0, -10.0, -10.0],  # Very cold
-            }
+        forcing = ForcingData(
+            time=pd.date_range("2020-01-01", periods=3, freq="D").values,
+            precip=np.array([10.0, 10.0, 10.0]),
+            pet=np.array([2.0, 2.0, 2.0]),
+            temp=np.array([-10.0, -10.0, -10.0]),  # Very cold
         )
 
-        result = run(typical_params, data, snow=typical_snow_params)
+        result = run(typical_snow_params, forcing, catchment=typical_catchment)
 
         # Snow pack should increase over cold period
-        assert result["snow_pack"].iloc[-1] > result["snow_pack"].iloc[0]
+        assert result.snow.snow_pack[-1] > result.snow.snow_pack[0]
         # All precip should be snow (solid_fraction = 1.0)
         np.testing.assert_array_almost_equal(
-            result["snow_psol"].values,
-            data["precip"].values,
+            result.snow.snow_psol,
+            forcing.precip,
         )
 
     def test_warm_period_snow_passes_through(
         self,
-        typical_params: Parameters,
-        typical_snow_params: CemaNeige,
+        typical_snow_params: Parameters,
+        typical_catchment: Catchment,
     ) -> None:
         """Warm period with no snow: precip passes through unchanged."""
-        data = pd.DataFrame(
-            {
-                "precip": [10.0, 10.0, 10.0],
-                "pet": [2.0, 2.0, 2.0],
-                "temp": [15.0, 15.0, 15.0],  # Warm: all rain
-            }
+        forcing = ForcingData(
+            time=pd.date_range("2020-01-01", periods=3, freq="D").values,
+            precip=np.array([10.0, 10.0, 10.0]),
+            pet=np.array([2.0, 2.0, 2.0]),
+            temp=np.array([15.0, 15.0, 15.0]),  # Warm: all rain
         )
 
-        result = run(typical_params, data, snow=typical_snow_params)
+        result = run(typical_snow_params, forcing, catchment=typical_catchment)
 
         # All precip should be liquid rain
         np.testing.assert_array_almost_equal(
-            result["snow_pliq"].values,
-            data["precip"].values,
+            result.snow.snow_pliq,
+            forcing.precip,
         )
         # Snow pack should be zero
-        assert (result["snow_pack"] == 0.0).all()
+        assert (result.snow.snow_pack == 0.0).all()
         # pliq_and_melt = precip (no melt since no snow)
         np.testing.assert_array_almost_equal(
-            result["snow_pliq_and_melt"].values,
-            data["precip"].values,
+            result.snow.snow_pliq_and_melt,
+            forcing.precip,
         )
 
     def test_snow_melt_produces_streamflow(
         self,
-        typical_params: Parameters,
-        typical_snow_params: CemaNeige,
+        typical_snow_params: Parameters,
+        typical_catchment: Catchment,
     ) -> None:
         """Snow accumulation followed by warm period produces melt."""
         # Longer simulation: snow accumulates, then melts over extended warm period
         cold_days = 5
         warm_days = 10
-        data = pd.DataFrame(
-            {
-                "precip": [20.0] * cold_days + [0.0] * warm_days,  # Precip then dry
-                "pet": [1.0] * cold_days + [4.0] * warm_days,
-                "temp": [-10.0] * cold_days + [10.0] * warm_days,  # Cold then warm
-            }
+        n_days = cold_days + warm_days
+        forcing = ForcingData(
+            time=pd.date_range("2020-01-01", periods=n_days, freq="D").values,
+            precip=np.array([20.0] * cold_days + [0.0] * warm_days),  # Precip then dry
+            pet=np.array([1.0] * cold_days + [4.0] * warm_days),
+            temp=np.array([-10.0] * cold_days + [10.0] * warm_days),  # Cold then warm
         )
 
-        result = run(typical_params, data, snow=typical_snow_params)
+        result = run(typical_snow_params, forcing, catchment=typical_catchment)
 
         # Snow should accumulate during cold period
-        assert result["snow_pack"].iloc[cold_days - 1] > 0.0
+        assert result.snow.snow_pack[cold_days - 1] > 0.0
         # Melt should occur during warm period (may need thermal state to warm up)
-        assert result["snow_melt"].iloc[cold_days:].sum() > 0.0
+        assert result.snow.snow_melt[cold_days:].sum() > 0.0
         # Streamflow should be produced
-        assert result["streamflow"].sum() > 0.0
+        assert result.gr6j.streamflow.sum() > 0.0
 
     def test_uses_custom_initial_snow_state(
         self,
-        typical_params: Parameters,
-        typical_snow_params: CemaNeige,
-        input_df_with_temp: pd.DataFrame,
+        typical_snow_params: Parameters,
+        typical_catchment: Catchment,
+        forcing_with_temp: ForcingData,
     ) -> None:
         """Custom initial_snow_state is respected."""
         # Custom state with existing snow pack
@@ -577,49 +565,48 @@ class TestRunWithSnow:
         )
 
         result_custom = run(
-            typical_params,
-            input_df_with_temp,
-            snow=typical_snow_params,
+            typical_snow_params,
+            forcing_with_temp,
+            catchment=typical_catchment,
             initial_snow_state=custom_snow_state,
         )
         result_default = run(
-            typical_params,
-            input_df_with_temp,
-            snow=typical_snow_params,
+            typical_snow_params,
+            forcing_with_temp,
+            catchment=typical_catchment,
         )
 
         # First row should differ due to different initial snow
-        assert result_custom["snow_pack"].iloc[0] != result_default["snow_pack"].iloc[0]
+        assert result_custom.snow.snow_pack[0] != result_default.snow.snow_pack[0]
 
-    def test_output_index_matches_input_with_snow(
+    def test_output_length_matches_input_with_snow(
         self,
-        typical_params: Parameters,
-        typical_snow_params: CemaNeige,
+        typical_snow_params: Parameters,
+        typical_catchment: Catchment,
     ) -> None:
-        """Output index matches input when snow enabled."""
-        custom_index = pd.date_range("2020-01-01", periods=5, freq="D")
-        data = pd.DataFrame(
-            {
-                "precip": [10.0] * 5,
-                "pet": [3.0] * 5,
-                "temp": [0.0] * 5,
-            },
-            index=custom_index,
+        """Output length matches input when snow enabled."""
+        forcing = ForcingData(
+            time=pd.date_range("2020-01-01", periods=5, freq="D").values,
+            precip=np.array([10.0] * 5),
+            pet=np.array([3.0] * 5),
+            temp=np.array([0.0] * 5),
         )
 
-        result = run(typical_params, data, snow=typical_snow_params)
+        result = run(typical_snow_params, forcing, catchment=typical_catchment)
 
-        pd.testing.assert_index_equal(result.index, data.index)
+        assert len(result) == len(forcing)
 
     def test_all_values_finite_with_snow(
         self,
-        typical_params: Parameters,
-        typical_snow_params: CemaNeige,
-        input_df_with_temp: pd.DataFrame,
+        typical_snow_params: Parameters,
+        typical_catchment: Catchment,
+        forcing_with_temp: ForcingData,
     ) -> None:
         """All output values are finite when snow enabled."""
-        result = run(typical_params, input_df_with_temp, snow=typical_snow_params)
+        result = run(typical_snow_params, forcing_with_temp, catchment=typical_catchment)
 
-        assert result.notna().all().all()
-        for col in result.columns:
-            assert np.all(np.isfinite(result[col].values)), f"Column '{col}' has non-finite values"
+        for key, values in result.gr6j.to_dict().items():
+            assert np.all(np.isfinite(values)), f"GR6J field '{key}' has non-finite values"
+
+        for key, values in result.snow.to_dict().items():
+            assert np.all(np.isfinite(values)), f"Snow field '{key}' has non-finite values"

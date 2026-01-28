@@ -7,14 +7,21 @@ Includes optional CemaNeige snow module for cold-climate catchments.
 """
 
 from .cemaneige import CemaNeige, CemaNeigeSingleLayerState, cemaneige_step
+from .inputs import Catchment, ForcingData
 from .model import Parameters, State, run, step
+from .outputs import GR6JOutput, ModelOutput, SnowOutput
 
 __all__ = [
-    "Parameters",
-    "State",
-    "step",
-    "run",
+    "Catchment",
     "CemaNeige",
     "CemaNeigeSingleLayerState",
+    "ForcingData",
+    "GR6JOutput",
+    "ModelOutput",
+    "Parameters",
+    "SnowOutput",
+    "State",
     "cemaneige_step",
+    "run",
+    "step",
 ]

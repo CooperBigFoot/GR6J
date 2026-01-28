@@ -6,9 +6,10 @@ This module provides the main entry points for running the GR6J model:
 """
 
 import numpy as np
-import pandas as pd
 
-from ..cemaneige import CemaNeige, CemaNeigeSingleLayerState, cemaneige_step
+from ..cemaneige import CemaNeigeSingleLayerState, cemaneige_step
+from ..inputs import Catchment, ForcingData
+from ..outputs import GR6JOutput, ModelOutput, SnowOutput
 from .constants import B, C
 from .processes import (
     direct_branch,
@@ -147,69 +148,61 @@ def step(
 
 def run(
     params: Parameters,
-    data: pd.DataFrame,
+    forcing: ForcingData,
+    catchment: Catchment | None = None,
     initial_state: State | None = None,
-    *,
-    snow: CemaNeige | None = None,
     initial_snow_state: CemaNeigeSingleLayerState | None = None,
-) -> pd.DataFrame:
+) -> ModelOutput:
     """Run the GR6J model over a timeseries.
 
-    Executes the GR6J model for each timestep in the input data, returning
-    a DataFrame with all model outputs.
+    Executes the GR6J model for each timestep in the input forcing data, returning
+    a ModelOutput with all model outputs.
 
     Args:
-        params: Model parameters (X1-X6).
-        data: Input DataFrame with 'precip' and 'pet' columns.
-            Must have these columns with precipitation and potential
-            evapotranspiration values in mm/day. When snow is provided,
-            a 'temp' column is also required.
+        params: Model parameters (X1-X6), with optional snow module (params.snow).
+        forcing: Input forcing data with precip, pet, and optionally temp arrays.
+            When snow module is enabled (params.snow is set), temp is required.
+        catchment: Catchment properties. Required when snow module is enabled
+            for mean_annual_solid_precip initialization.
         initial_state: Initial model state. If None, uses State.initialize(params).
-        snow: Optional CemaNeige parameters for snow module. When provided,
-            the model will preprocess precipitation through the snow module,
-            converting snow to liquid water before GR6J processing.
         initial_snow_state: Optional initial CemaNeige state. If None and
-            snow is provided, uses CemaNeigeSingleLayerState.initialize().
+            snow module is enabled, uses CemaNeigeSingleLayerState.initialize().
 
     Returns:
-        DataFrame with all model fluxes (same index as input data).
-        When snow is None: 20 columns (standard GR6J outputs).
-        When snow is provided: 32 columns (20 GR6J + 11 CemaNeige + 1 precip_raw).
+        ModelOutput containing GR6J outputs and optionally snow outputs.
+        Access streamflow via result.gr6j.streamflow (numpy array).
+        Convert to DataFrame via result.to_dataframe().
 
     Raises:
-        ValueError: If input data is missing required columns.
+        ValueError: If forcing.temp is None when snow module is enabled.
+        ValueError: If catchment is None when snow module is enabled.
 
     Example:
         >>> params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5)
-        >>> data = pd.DataFrame({
-        ...     'precip': [10.0, 5.0, 0.0],
-        ...     'pet': [3.0, 4.0, 5.0]
-        ... })
-        >>> results = run(params, data)
-        >>> results['streamflow']
-        0    ...
-        1    ...
-        2    ...
-        Name: streamflow, dtype: float64
+        >>> forcing = ForcingData(
+        ...     time=np.array(['2020-01-01', '2020-01-02', '2020-01-03'], dtype='datetime64'),
+        ...     precip=np.array([10.0, 5.0, 0.0]),
+        ...     pet=np.array([3.0, 4.0, 5.0]),
+        ... )
+        >>> result = run(params, forcing)
+        >>> result.gr6j.streamflow
+        array([...])
     """
-    # Validate input data
-    required_columns = {"precip", "pet"}
-    missing = required_columns - set(data.columns)
-    if missing:
-        raise ValueError(f"Input data missing required columns: {missing}")
-
-    # Additional validation when snow module is enabled
-    if snow is not None and "temp" not in data.columns:
-        raise ValueError("Input data must include 'temp' column when snow module is enabled")
+    # Validate snow module requirements
+    if params.has_snow:
+        if forcing.temp is None:
+            raise ValueError("forcing.temp required when snow module enabled (params.snow is set)")
+        if catchment is None:
+            raise ValueError("catchment required when snow module enabled (params.snow is set)")
 
     # Initialize state if not provided
     state = State.initialize(params) if initial_state is None else initial_state
 
     # Initialize snow state if snow module enabled
     snow_state: CemaNeigeSingleLayerState | None = None
-    if snow is not None:
+    if params.has_snow:
         snow_state = (
-            CemaNeigeSingleLayerState.initialize(snow.mean_annual_solid_precip)
+            CemaNeigeSingleLayerState.initialize(catchment.mean_annual_solid_precip)  # type: ignore  # validated above
             if initial_snow_state is None
             else initial_snow_state
         )
@@ -217,23 +210,66 @@ def run(
     # Compute unit hydrograph ordinates once
     uh1_ordinates, uh2_ordinates = compute_uh_ordinates(params.x4)
 
-    # Run model for each timestep
-    all_fluxes: list[dict[str, float]] = []
+    # Initialize output arrays
+    n_timesteps = len(forcing)
 
-    for idx in range(len(data)):
-        precip = float(data["precip"].iloc[idx])
-        pet = float(data["pet"].iloc[idx])
+    # GR6J outputs (20 fields)
+    gr6j_outputs: dict[str, list[float]] = {
+        "pet": [],
+        "precip": [],
+        "production_store": [],
+        "net_rainfall": [],
+        "storage_infiltration": [],
+        "actual_et": [],
+        "percolation": [],
+        "effective_rainfall": [],
+        "q9": [],
+        "q1": [],
+        "routing_store": [],
+        "exchange": [],
+        "actual_exchange_routing": [],
+        "actual_exchange_direct": [],
+        "actual_exchange_total": [],
+        "qr": [],
+        "qrexp": [],
+        "exponential_store": [],
+        "qd": [],
+        "streamflow": [],
+    }
+
+    # Snow outputs (if enabled)
+    snow_outputs: dict[str, list[float]] | None = None
+    if params.has_snow:
+        snow_outputs = {
+            "precip_raw": [],
+            "snow_pliq": [],
+            "snow_psol": [],
+            "snow_pack": [],
+            "snow_thermal_state": [],
+            "snow_gratio": [],
+            "snow_pot_melt": [],
+            "snow_melt": [],
+            "snow_pliq_and_melt": [],
+            "snow_temp": [],
+            "snow_gthreshold": [],
+            "snow_glocalmax": [],
+        }
+
+    # Run model for each timestep
+    for idx in range(n_timesteps):
+        precip = float(forcing.precip[idx])
+        pet = float(forcing.pet[idx])
 
         # Store raw precip for output when snow enabled
         precip_raw = precip
 
         # Run snow module if enabled
         snow_fluxes: dict[str, float] = {}
-        if snow is not None and snow_state is not None:
-            temp = float(data["temp"].iloc[idx])
+        if params.has_snow and snow_state is not None:
+            temp = float(forcing.temp[idx])  # type: ignore  # validated above
             snow_state, snow_fluxes = cemaneige_step(
                 state=snow_state,
-                params=snow,
+                params=params.snow,  # type: ignore  # validated via has_snow
                 precip=precip,
                 temp=temp,
             )
@@ -249,14 +285,27 @@ def run(
             uh2_ordinates=uh2_ordinates,
         )
 
-        # Combine fluxes
-        if snow is not None:
-            fluxes["precip_raw"] = precip_raw
-            fluxes.update(snow_fluxes)
+        # Append GR6J outputs
+        for key, value in fluxes.items():
+            gr6j_outputs[key].append(value)
 
-        all_fluxes.append(fluxes)
+        # Append snow outputs if enabled
+        if params.has_snow and snow_outputs is not None:
+            snow_outputs["precip_raw"].append(precip_raw)
+            for key, value in snow_fluxes.items():
+                snow_outputs[key].append(value)
 
-    # Convert to DataFrame with same index as input
-    result = pd.DataFrame(all_fluxes, index=data.index)
+    # Convert to numpy arrays and construct output objects
+    gr6j_arrays = {k: np.array(v) for k, v in gr6j_outputs.items()}
+    gr6j_output = GR6JOutput(**gr6j_arrays)
 
-    return result
+    snow_output: SnowOutput | None = None
+    if snow_outputs is not None:
+        snow_arrays = {k: np.array(v) for k, v in snow_outputs.items()}
+        snow_output = SnowOutput(**snow_arrays)
+
+    return ModelOutput(
+        time=forcing.time,
+        gr6j=gr6j_output,
+        snow=snow_output,
+    )

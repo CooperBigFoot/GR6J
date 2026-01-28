@@ -4,6 +4,7 @@ Tests cover validation, immutability, initialization, and boundary warnings
 for the core data structures used throughout the model.
 """
 
+import dataclasses
 import logging
 
 import numpy as np
@@ -166,3 +167,41 @@ class TestState:
 
         np.testing.assert_array_equal(state.uh1_states, np.zeros(20))
         np.testing.assert_array_equal(state.uh2_states, np.zeros(40))
+
+
+class TestParametersWithSnow:
+    """Tests for Parameters.snow field and has_snow property."""
+
+    def test_creates_without_snow_by_default(self):
+        """Default Parameters has snow=None."""
+        params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5)
+        assert params.snow is None
+
+    def test_creates_with_snow_parameter(self):
+        """Can create Parameters with snow enabled."""
+        from gr6j import CemaNeige
+
+        params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5, snow=CemaNeige(ctg=0.97, kf=2.5))
+        assert params.snow is not None
+        assert params.snow.ctg == 0.97
+        assert params.snow.kf == 2.5
+
+    def test_has_snow_false_when_snow_none(self):
+        """has_snow property returns False when snow=None."""
+        params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5)
+        assert params.has_snow is False
+
+    def test_has_snow_true_when_snow_set(self):
+        """has_snow property returns True when snow is set."""
+        from gr6j import CemaNeige
+
+        params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5, snow=CemaNeige(ctg=0.97, kf=2.5))
+        assert params.has_snow is True
+
+    def test_snow_is_frozen(self):
+        """Cannot modify snow field after creation."""
+        from gr6j import CemaNeige
+
+        params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5, snow=CemaNeige(ctg=0.97, kf=2.5))
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            params.snow = None

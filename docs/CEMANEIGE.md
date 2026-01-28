@@ -116,6 +116,20 @@ Based on airGR documentation examples across multiple catchments:
 
 - **prct (Percentage parameter)**: Defines the initial melt threshold as a fraction of mean annual solid precipitation. Only used in hysteresis mode.
 
+**Note on mean_annual_solid_precip:** In earlier versions, `mean_annual_solid_precip` was
+a parameter of the `CemaNeige` class. It has now been moved to the `Catchment` class since
+it is a static catchment property rather than a calibration parameter.
+
+```python
+# Old API (deprecated)
+snow = CemaNeige(ctg=0.97, kf=2.5, mean_annual_solid_precip=150.0)
+
+# New API
+params = Parameters(..., snow=CemaNeige(ctg=0.97, kf=2.5))
+catchment = Catchment(mean_annual_solid_precip=150.0)
+output = run(params, forcing, catchment=catchment)
+```
+
 ---
 
 ## 3. State Variables
@@ -503,6 +517,38 @@ CemaNeige operates as a **preprocessing layer** before the GR6J model:
 │              Output: Streamflow [mm/day]                     │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
+```
+
+### Python API Example
+
+```python
+import numpy as np
+from gr6j import Catchment, CemaNeige, ForcingData, Parameters, run
+
+# Model parameters with embedded snow module
+params = Parameters(
+    x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0,
+    snow=CemaNeige(ctg=0.97, kf=2.5)
+)
+
+# Catchment properties
+catchment = Catchment(mean_annual_solid_precip=150.0)
+
+# Forcing data with temperature
+forcing = ForcingData(
+    time=np.arange(365, dtype='datetime64[D]') + np.datetime64('2020-01-01'),
+    precip=precip_array,
+    pet=pet_array,
+    temp=temp_array,
+)
+
+# Run coupled model
+output = run(params, forcing, catchment=catchment)
+
+# Access outputs
+print(output.gr6j.streamflow)    # GR6J streamflow
+print(output.snow.snow_pack)     # Snow pack water equivalent
+print(output.snow.snow_melt)     # Daily melt
 ```
 
 ### Parameter Count for Combined Models

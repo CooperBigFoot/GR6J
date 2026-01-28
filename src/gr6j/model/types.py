@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 
 from .constants import NH
+
+if TYPE_CHECKING:
+    from ..cemaneige import CemaNeige
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +54,9 @@ def _warn_if_outside_bounds(params: Parameters) -> None:
 class Parameters:
     """GR6J calibrated parameters.
 
-    All 6 parameters that define the model behavior. This is a frozen dataclass
-    to prevent accidental modification during simulation.
+    All 6 parameters that define the model behavior, plus optional snow module
+    configuration. This is a frozen dataclass to prevent accidental modification
+    during simulation.
 
     Attributes:
         x1: Production store capacity [mm]. Typical range [1, 2500].
@@ -61,6 +65,8 @@ class Parameters:
         x4: Unit hydrograph time constant [days]. Typical range [0.5, 10].
         x5: Intercatchment exchange threshold [-]. Typical range [-4, 4].
         x6: Exponential store scale parameter [mm]. Typical range [0.01, 20].
+        snow: Optional CemaNeige parameters for snow module. When provided,
+            the model will preprocess precipitation through the snow module.
     """
 
     x1: float  # Production store capacity [mm]
@@ -70,12 +76,19 @@ class Parameters:
     x5: float  # Intercatchment exchange threshold [-]
     x6: float  # Exponential store scale parameter [mm]
 
+    snow: CemaNeige | None = None  # Optional snow module parameters
+
     # Class-level reference to bounds for external access
     BOUNDS: ClassVar[dict[str, tuple[float, float]]] = _PARAMETER_BOUNDS
 
     def __post_init__(self) -> None:
         """Validate parameters and warn if outside typical ranges."""
         _warn_if_outside_bounds(self)
+
+    @property
+    def has_snow(self) -> bool:
+        """Return True if snow module is enabled."""
+        return self.snow is not None
 
 
 @dataclass
