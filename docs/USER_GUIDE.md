@@ -561,7 +561,7 @@ forcing = ForcingData(
 )
 ```
 
-2. **Catchment properties** with mean annual solid precipitation:
+1. **Catchment properties** with mean annual solid precipitation:
 
 ```python
 from gr6j import Catchment
@@ -736,6 +736,7 @@ state = new_state
 ```
 
 The `step()` function returns:
+
 - `new_state`: Updated `State` object for the next timestep
 - `fluxes`: Dictionary containing all 20 GR6J outputs for this timestep
 
