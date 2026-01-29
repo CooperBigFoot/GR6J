@@ -1192,6 +1192,31 @@ To disable the progress bar for batch processing or when using custom logging:
 result = calibrate(..., progress=False)
 ```
 
+### Parallel Execution
+
+Speed up calibration by evaluating individuals in parallel:
+
+```python
+result = calibrate(
+    forcing=forcing,
+    observed=observed,
+    objectives=["nse"],
+    bounds=bounds,
+    warmup=365,
+    n_workers=-1,  # Use all CPU cores
+)
+```
+
+| Value | Behavior |
+|-------|----------|
+| `1` | Sequential execution (default) |
+| `-1` | Use all available CPU cores |
+| `N` | Use N parallel workers |
+
+**Note:** Parallel execution spawns separate processes. Logging configuration
+from the main process (e.g., suppressing parameter warnings) does not propagate
+to worker processes.
+
 ### Early Stopping via Callback
 
 Custom callbacks for monitoring or early stopping are only available when `progress=False`:
