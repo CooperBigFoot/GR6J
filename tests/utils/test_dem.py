@@ -220,6 +220,15 @@ class TestAnalyzeDemErrorHandling:
         with pytest.raises(ValueError, match="All pixels are NoData or invalid"):
             analyze_dem(dem_path)
 
+    def test_raises_on_all_zeros(self, tmp_path: Path) -> None:
+        """ValueError when all pixels are zero (treated as NoData)."""
+        data = np.full((5, 5), 0.0, dtype=np.float32)
+        dem_path = tmp_path / "all_zeros.tif"
+        _create_dem_file(dem_path, data)
+
+        with pytest.raises(ValueError, match="All pixels are NoData or invalid"):
+            analyze_dem(dem_path)
+
 
 class TestAnalyzeDemEdgeCases:
     """Tests for analyze_dem edge cases."""
@@ -269,9 +278,10 @@ class TestAnalyzeDemEdgeCases:
     def test_extreme_elevations(self, tmp_path: Path) -> None:
         """Very high (8848) and low (-400) values work."""
         # Create DEM with Everest and Dead Sea elevations
+        # Note: 0.0 is excluded as potential NoData, so use -400 as min
         data = np.array(
             [
-                [-400.0, 0.0, 1000.0],
+                [-400.0, 100.0, 1000.0],
                 [2000.0, 4000.0, 6000.0],
                 [7000.0, 8000.0, 8848.0],
             ],
@@ -284,6 +294,27 @@ class TestAnalyzeDemEdgeCases:
 
         np.testing.assert_allclose(result.min_elevation, -400.0, rtol=1e-5)
         np.testing.assert_allclose(result.max_elevation, 8848.0, rtol=1e-5)
+
+    def test_excludes_zero_values(self, tmp_path: Path) -> None:
+        """Zero values are excluded (common fill value for clipped DEMs)."""
+        # Simulate a clipped DEM where 0 is used as fill value
+        data = np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [0.0, 500.0, 600.0],
+                [0.0, 700.0, 800.0],
+            ],
+            dtype=np.float32,
+        )
+        dem_path = tmp_path / "dem_with_zeros.tif"
+        # Create without explicit nodata to simulate common clipped DEM issue
+        _create_dem_file(dem_path, data, nodata=-9999.0)
+
+        result = analyze_dem(dem_path)
+
+        # Zeros should be excluded; stats should reflect only 500-800 range
+        np.testing.assert_allclose(result.min_elevation, 500.0, rtol=1e-5)
+        np.testing.assert_allclose(result.max_elevation, 800.0, rtol=1e-5)
 
 
 class TestHypsometricCurveContract:

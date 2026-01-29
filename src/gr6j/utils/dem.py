@@ -52,6 +52,11 @@ class DEMStatistics:
 def _mask_nodata(data: np.ndarray, nodata: float | None) -> np.ndarray:
     """Extract valid pixels from raster data, excluding NoData and invalid values.
 
+    Excludes:
+    - NaN and infinite values
+    - The NoData value from raster metadata (if set)
+    - Zero values (common fill value for clipped DEMs when NoData is not set)
+
     Args:
         data: Raw raster data array (can be any shape).
         nodata: NoData value from the raster metadata, or None if not defined.
@@ -62,12 +67,23 @@ def _mask_nodata(data: np.ndarray, nodata: float | None) -> np.ndarray:
     # Flatten to 1D for easier processing
     flat_data = data.ravel()
 
-    # Create mask for valid data
-    valid_mask = np.isfinite(flat_data)
+    # Create mask for valid data (exclude NaN, inf, and zero)
+    # Zero is excluded because clipped DEMs commonly use 0 as a fill value
+    # when the NoData metadata is not properly set
+    valid_mask = np.isfinite(flat_data) & (flat_data != 0)
 
     # Also exclude NoData value if specified
     if nodata is not None:
         valid_mask &= flat_data != nodata
+
+    # Log warning if zeros were excluded and nodata wasn't set
+    if nodata is None:
+        zero_count = np.sum(flat_data == 0)
+        if zero_count > 0:
+            logger.debug(
+                "Excluded %d zero-valued pixels (likely NoData in clipped DEM)",
+                zero_count,
+            )
 
     return flat_data[valid_mask]
 
