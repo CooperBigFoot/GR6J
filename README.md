@@ -2,6 +2,13 @@
 
 A Python implementation of lumped conceptual rainfall-runoff models for daily streamflow simulation, including **GR6J** (Genie Rural a 6 parametres Journalier) and the **CemaNeige** snow module.
 
+## Maintenance Status
+
+🟢 **Active Development**
+This repository is part of an ongoing project and actively maintained.
+
+**Topic:** `python-package`
+
 ## Overview
 
 GR6J is an extension of the widely-used GR4J model, developed by INRAE (France), with an additional **exponential store** to improve low-flow simulation. This implementation includes the optional **CemaNeige** snow module for cold-climate catchments. It operates in simulation mode (concurrent prediction), making it ideal for:
