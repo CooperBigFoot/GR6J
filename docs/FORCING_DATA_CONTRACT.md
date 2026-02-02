@@ -14,9 +14,9 @@ strict validation rules to ensure data quality and prevent runtime errors.
 | `time` | `np.ndarray[datetime64]` | Yes | - | Timestamp for each observation |
 | `precip` | `np.ndarray[float64]` | Yes | mm/day | Daily precipitation |
 | `pet` | `np.ndarray[float64]` | Yes | mm/day | Daily potential evapotranspiration |
-| `temp` | `np.ndarray[float64]` | No* | °C | Daily mean air temperature |
+| `temp` | `np.ndarray[float64]` | No* | deg C | Daily mean air temperature |
 
-*Required when snow module is enabled (`params.snow is not None`)
+*Required when using the GR6J-CemaNeige coupled model (`pydrology.models.gr6j_cemaneige`)
 
 ## Validation Rules
 
@@ -108,7 +108,7 @@ forcing.precip = new_array  # Raises ValidationError
 
 ```python
 import numpy as np
-from gr6j import ForcingData
+from pydrology import ForcingData
 
 forcing = ForcingData(
     time=np.arange(365, dtype='datetime64[D]') + np.datetime64('2020-01-01'),
@@ -121,7 +121,7 @@ forcing = ForcingData(
 
 ```python
 import pandas as pd
-from gr6j import ForcingData
+from pydrology import ForcingData
 
 df = pd.read_csv('forcing.csv', parse_dates=['date'])
 
@@ -137,7 +137,7 @@ forcing = ForcingData(
 
 ```python
 import pandas as pd
-from gr6j import ForcingData
+from pydrology import ForcingData
 
 df = pd.read_csv('forcing.csv')
 
@@ -152,7 +152,7 @@ forcing = ForcingData(
 
 ```python
 import xarray as xr
-from gr6j import ForcingData
+from pydrology import ForcingData
 
 ds = xr.open_dataset('forcing.nc')
 

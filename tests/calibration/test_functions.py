@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from gr6j.calibration.metrics import kge, log_nse, mae, nse, pbias, rmse
+from pydrology.calibration.metrics import kge, log_nse, mae, nse, pbias, rmse
 
 
 class TestNSE:

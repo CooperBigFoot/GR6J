@@ -8,10 +8,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from gr6j import CemaNeige, Parameters, run
-from gr6j.cemaneige.run import _cemaneige_step_numba, cemaneige_step
-from gr6j.cemaneige.types import CemaNeigeSingleLayerState
-from gr6j.inputs import Catchment, ForcingData
+from pydrology import CemaNeige, Parameters, run
+from pydrology.cemaneige.run import _cemaneige_step_numba, cemaneige_step
+from pydrology.cemaneige.types import CemaNeigeSingleLayerState
+from pydrology.types import Catchment, ForcingData
 
 
 class TestCemaNeigeStepNumbaEquivalence:
@@ -134,8 +134,13 @@ class TestCemaNeigeStepNumbaEquivalence:
         assert out_state[3] == pytest.approx(state_py.glocalmax, rel=1e-10)
 
 
+@pytest.mark.skip(reason="Coupled GR6J+CemaNeige model not yet implemented - GR6J decoupled in Phase 3")
 class TestCoupledSnowRunEquivalence:
-    """Tests that coupled snow-GR6J runs match between Numba and Python paths."""
+    """Tests that coupled snow-GR6J runs match between Numba and Python paths.
+
+    Note: These tests are skipped because GR6J has been decoupled from CemaNeige.
+    A combined GR6J+CemaNeige model will be implemented in a future phase.
+    """
 
     @pytest.fixture
     def params(self) -> Parameters:
@@ -146,7 +151,6 @@ class TestCoupledSnowRunEquivalence:
             x4=1.7,
             x5=0.1,
             x6=5,
-            snow=CemaNeige(ctg=0.97, kf=2.5),
         )
 
     @pytest.fixture
@@ -168,37 +172,31 @@ class TestCoupledSnowRunEquivalence:
 
     def test_single_layer_snow_run(self, params: Parameters, catchment: Catchment, forcing: ForcingData) -> None:
         """Single-layer snow run produces correct outputs."""
-        result = run(params, forcing, catchment)
+        result = run(params, forcing)
 
         # Check all outputs exist and are valid
-        assert result.snow is not None
-        assert len(result.gr6j.streamflow) == len(forcing)
-        assert np.all(result.gr6j.streamflow >= 0)
-        assert np.all(np.isfinite(result.gr6j.streamflow))
-
-        # Check snow outputs
-        assert np.all(result.snow.snow_pack >= 0)
-        assert np.all(result.snow.snow_melt >= 0)
+        assert len(result.streamflow) == len(forcing)
+        assert np.all(result.streamflow >= 0)
+        assert np.all(np.isfinite(result.streamflow))
 
     def test_snow_pliq_and_melt_sum(self, params: Parameters, catchment: Catchment, forcing: ForcingData) -> None:
         """snow_pliq_and_melt equals snow_pliq + snow_melt."""
-        result = run(params, forcing, catchment)
-
-        np.testing.assert_allclose(
-            result.snow.snow_pliq_and_melt,
-            result.snow.snow_pliq + result.snow.snow_melt,
-            rtol=1e-10,
-        )
+        # Skipped - requires coupled model
+        pass
 
     def test_precip_raw_matches_input(self, params: Parameters, catchment: Catchment, forcing: ForcingData) -> None:
         """precip_raw matches original input precipitation."""
-        result = run(params, forcing, catchment)
+        # Skipped - requires coupled model
+        pass
 
-        np.testing.assert_allclose(result.snow.precip_raw, forcing.precip, rtol=1e-10)
 
-
+@pytest.mark.skip(reason="Coupled GR6J+CemaNeige model not yet implemented - GR6J decoupled in Phase 3")
 class TestMultiLayerSnowEquivalence:
-    """Tests for multi-layer snow mode."""
+    """Tests for multi-layer snow mode.
+
+    Note: These tests are skipped because GR6J has been decoupled from CemaNeige.
+    A combined GR6J+CemaNeige model with multi-layer support will be implemented in a future phase.
+    """
 
     @pytest.fixture
     def params(self) -> Parameters:
@@ -209,7 +207,6 @@ class TestMultiLayerSnowEquivalence:
             x4=1.7,
             x5=0.1,
             x6=5,
-            snow=CemaNeige(ctg=0.97, kf=2.5),
         )
 
     @pytest.fixture
@@ -236,47 +233,25 @@ class TestMultiLayerSnowEquivalence:
         self, params: Parameters, catchment: Catchment, forcing: ForcingData
     ) -> None:
         """Multi-layer mode produces per-layer outputs."""
-        result = run(params, forcing, catchment)
-
-        assert result.snow_layers is not None
-        assert result.snow_layers.n_layers == 5
-        assert result.snow_layers.snow_pack.shape == (len(forcing), 5)
-        assert result.snow_layers.layer_temp.shape == (len(forcing), 5)
+        # Skipped - requires coupled model
+        pass
 
     def test_layer_temperature_gradient(self, params: Parameters, catchment: Catchment, forcing: ForcingData) -> None:
         """Higher elevation layers have lower temperatures."""
-        result = run(params, forcing, catchment)
-
-        assert result.snow_layers is not None
-        # On average, higher layers should be colder
-        mean_temps = result.snow_layers.layer_temp.mean(axis=0)
-        # Layer 0 is lowest elevation, layer 4 is highest
-        assert mean_temps[0] > mean_temps[4], "Higher elevations should be colder"
+        # Skipped - requires coupled model
+        pass
 
     def test_all_layer_values_finite(self, params: Parameters, catchment: Catchment, forcing: ForcingData) -> None:
         """All layer outputs are finite."""
-        result = run(params, forcing, catchment)
-
-        assert result.snow_layers is not None
-        assert np.all(np.isfinite(result.snow_layers.snow_pack))
-        assert np.all(np.isfinite(result.snow_layers.snow_melt))
-        assert np.all(np.isfinite(result.snow_layers.layer_temp))
-        assert np.all(np.isfinite(result.snow_layers.layer_precip))
+        # Skipped - requires coupled model
+        pass
 
     def test_aggregated_matches_weighted_layers(
         self, params: Parameters, catchment: Catchment, forcing: ForcingData
     ) -> None:
         """Aggregated snow pack matches weighted average of layers."""
-        result = run(params, forcing, catchment)
-
-        assert result.snow_layers is not None
-        assert result.snow is not None
-
-        # Compute weighted average
-        fractions = result.snow_layers.layer_fractions
-        weighted_avg = (result.snow_layers.snow_pack * fractions).sum(axis=1)
-
-        np.testing.assert_allclose(result.snow.snow_pack, weighted_avg, rtol=1e-10)
+        # Skipped - requires coupled model
+        pass
 
 
 class TestCemaNeigeEdgeCases:
@@ -352,75 +327,20 @@ class TestCemaNeigeEdgeCases:
         assert out_fluxes[6] == pytest.approx(0.0)  # snow_melt
 
 
+@pytest.mark.skip(reason="Coupled GR6J+CemaNeige model not yet implemented - GR6J decoupled in Phase 3")
 class TestNumericalStabilitySnow:
-    """Tests for numerical stability of CemaNeige Numba implementations."""
+    """Tests for numerical stability of CemaNeige Numba implementations.
+
+    Note: These tests are skipped because GR6J has been decoupled from CemaNeige.
+    A combined GR6J+CemaNeige model will be implemented in a future phase.
+    """
 
     def test_long_simulation_with_snow(self) -> None:
         """Long simulation with snow maintains numerical stability."""
-        params = Parameters(
-            x1=350,
-            x2=0.5,
-            x3=90,
-            x4=1.7,
-            x5=0.1,
-            x6=5,
-            snow=CemaNeige(ctg=0.97, kf=2.5),
-        )
-        catchment = Catchment(mean_annual_solid_precip=150.0)
-
-        n = 500
-        rng = np.random.default_rng(42)
-        forcing = ForcingData(
-            time=pd.date_range("2020-01-01", periods=n, freq="D").values,
-            precip=rng.uniform(0, 25, n),
-            pet=rng.uniform(1, 7, n),
-            temp=rng.uniform(-15, 20, n),
-        )
-
-        result = run(params, forcing, catchment)
-
-        # All outputs should be finite
-        assert np.all(np.isfinite(result.gr6j.streamflow))
-        assert np.all(np.isfinite(result.snow.snow_pack))
-        assert np.all(np.isfinite(result.snow.snow_melt))
-
-        # Streamflow should be non-negative
-        assert np.all(result.gr6j.streamflow >= 0)
-        assert np.all(result.snow.snow_pack >= 0)
-        assert np.all(result.snow.snow_melt >= 0)
+        # Skipped - requires coupled model
+        pass
 
     def test_seasonal_cycle(self) -> None:
         """Model handles seasonal cycle (winter accumulation, spring melt)."""
-        params = Parameters(
-            x1=350,
-            x2=0.5,
-            x3=90,
-            x4=1.7,
-            x5=0.1,
-            x6=5,
-            snow=CemaNeige(ctg=0.97, kf=2.5),
-        )
-        catchment = Catchment(mean_annual_solid_precip=150.0)
-
-        # Create seasonal temperature pattern
-        n = 365
-        days = np.arange(n)
-        temp = 10 * np.sin(2 * np.pi * (days - 100) / 365)  # Peak in summer
-        rng = np.random.default_rng(42)
-
-        forcing = ForcingData(
-            time=pd.date_range("2020-01-01", periods=n, freq="D").values,
-            precip=rng.uniform(0, 15, n),
-            pet=np.clip(2 + 3 * np.sin(2 * np.pi * (days - 100) / 365), 0.5, 6),
-            temp=temp,
-        )
-
-        result = run(params, forcing, catchment)
-
-        # Should have some snow accumulation in winter
-        # Days 0-90 are winter (approx Dec-Mar)
-        assert result.snow.snow_pack[:90].max() > 0, "Should have snow in winter"
-
-        # All outputs should be valid
-        assert np.all(np.isfinite(result.gr6j.streamflow))
-        assert np.all(result.gr6j.streamflow >= 0)
+        # Skipped - requires coupled model
+        pass

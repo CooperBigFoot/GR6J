@@ -7,7 +7,7 @@ extrapolation across elevation bands.
 import numpy as np
 import pytest
 
-from gr6j.cemaneige.layers import (
+from pydrology.cemaneige.layers import (
     derive_layers,
     extrapolate_precipitation,
     extrapolate_temperature,

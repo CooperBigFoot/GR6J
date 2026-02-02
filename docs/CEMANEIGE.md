@@ -3,6 +3,10 @@
 > **Coupled Snow Accumulation and Melt Model**
 > A degree-day snow accounting routine for use with GR rainfall-runoff models
 
+This document describes the CemaNeige snow module. The standalone snow processes are available
+in `pydrology.cemaneige`. For coupled GR6J+CemaNeige modeling, use `pydrology.models.gr6j_cemaneige`
+which provides an integrated 8-parameter model.
+
 ---
 
 ## Table of Contents
@@ -116,16 +120,18 @@ Based on airGR documentation examples across multiple catchments:
 
 - **prct (Percentage parameter)**: Defines the initial melt threshold as a fraction of mean annual solid precipitation. Only used in hysteresis mode.
 
-**Note on mean_annual_solid_precip:** In earlier versions, `mean_annual_solid_precip` was
-a parameter of the `CemaNeige` class. It has now been moved to the `Catchment` class since
-it is a static catchment property rather than a calibration parameter.
+**Note on mean_annual_solid_precip:** The `mean_annual_solid_precip` is specified via the
+`Catchment` class since it is a static catchment property rather than a calibration parameter.
 
 ```python
-# Old API (deprecated)
-snow = CemaNeige(ctg=0.97, kf=2.5, mean_annual_solid_precip=150.0)
+from pydrology import Catchment
+from pydrology.models.gr6j_cemaneige import Parameters, run
 
-# New API
-params = Parameters(..., snow=CemaNeige(ctg=0.97, kf=2.5))
+# CemaNeige parameters are part of the Parameters class
+params = Parameters(
+    x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5,  # GR6J
+    ctg=0.97, kf=2.5,  # CemaNeige
+)
 catchment = Catchment(mean_annual_solid_precip=150.0)
 output = run(params, forcing, catchment=catchment)
 ```
@@ -263,7 +269,7 @@ $$f_{solid} = \begin{cases}
 
 > **Tip:** Use the `compute_solid_fraction()` utility to compute solid fractions for your forcing data:
 > ```python
-> from gr6j.utils import compute_solid_fraction
+> from pydrology.utils import compute_solid_fraction
 > solid_frac = compute_solid_fraction(temp_array)
 > ```
 
@@ -539,12 +545,13 @@ CemaNeige operates as a **preprocessing layer** before the GR6J model:
 
 ```python
 import numpy as np
-from gr6j import Catchment, CemaNeige, ForcingData, Parameters, run
+from pydrology import Catchment, ForcingData
+from pydrology.models.gr6j_cemaneige import Parameters, run
 
-# Model parameters with embedded snow module
+# Model parameters (8 total: 6 GR6J + 2 CemaNeige)
 params = Parameters(
-    x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0,
-    snow=CemaNeige(ctg=0.97, kf=2.5)
+    x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0,  # GR6J
+    ctg=0.97, kf=2.5,  # CemaNeige
 )
 
 # Catchment properties
@@ -596,7 +603,7 @@ CemaNeige supports **multi-layer elevation bands** to account for temperature an
 | Hypsometric curve | 101-point elevation distribution (percentiles 0-100%) |
 | Equal area bands | Each layer represents 1/N of the catchment area |
 
-> **Tip:** Use the `analyze_dem()` utility to automatically compute the hypsometric curve from a basin-clipped DEM file. See [Section 10.7](#107-dem-requirements) for details.
+> **Tip:** Use the `pydrology.utils.analyze_dem()` utility to automatically compute the hypsometric curve from a basin-clipped DEM file. See [Section 10.7](#107-dem-requirements) for details.
 
 ### 10.2 Layer Derivation
 
@@ -649,8 +656,9 @@ All flux variables are aggregated the same way (snow_pack, snow_melt, etc.).
 
 ```python
 import numpy as np
-from gr6j import Catchment, CemaNeige, ForcingData, Parameters, run
-from gr6j.utils import analyze_dem
+from pydrology import Catchment, ForcingData
+from pydrology.models.gr6j_cemaneige import Parameters, run
+from pydrology.utils import analyze_dem
 
 # Analyze basin DEM to get hypsometric curve
 dem = analyze_dem("data/basin_dem.tif")
@@ -669,13 +677,13 @@ catchment_custom = Catchment(
     n_layers=5,
     hypsometric_curve=dem.hypsometric_curve,
     input_elevation=500.0,           # Known station elevation [m]
-    temp_gradient=0.8,               # Custom lapse rate [°C/100m]
-    precip_gradient=0.0005,          # Custom precip gradient [m⁻¹]
+    temp_gradient=0.8,               # Custom lapse rate [deg C/100m]
+    precip_gradient=0.0005,          # Custom precip gradient [m^-1]
 )
 
 params = Parameters(
-    x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0,
-    snow=CemaNeige(ctg=0.97, kf=2.5),
+    x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0,  # GR6J
+    ctg=0.97, kf=2.5,  # CemaNeige
 )
 
 forcing = ForcingData(
@@ -729,7 +737,7 @@ Where:
 **Python usage:**
 
 ```python
-from gr6j.utils import analyze_dem
+from pydrology.utils import analyze_dem
 
 dem = analyze_dem("data/basin_dem.tif")
 
@@ -786,12 +794,13 @@ This requires:
 The annual mean solid precipitation is required for CemaNeige initialization. Use the utility function to compute it from your forcing data:
 
 ```python
-from gr6j.utils import compute_mean_annual_solid_precip
+from pydrology import Catchment
+from pydrology.utils import compute_mean_annual_solid_precip
 
 # Compute from calibration period data
 mean_annual_solid = compute_mean_annual_solid_precip(
     precip=precip_array,  # Daily precipitation [mm/day]
-    temp=temp_array,      # Daily temperature [°C]
+    temp=temp_array,      # Daily temperature [deg C]
 )
 
 # Use in Catchment configuration

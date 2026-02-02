@@ -7,8 +7,8 @@ CEMANEIGE.md algorithm.
 import numpy as np
 import pytest
 
-from gr6j.cemaneige.run import cemaneige_multi_layer_step, cemaneige_step
-from gr6j.cemaneige.types import CemaNeige, CemaNeigeMultiLayerState, CemaNeigeSingleLayerState
+from pydrology.cemaneige.run import cemaneige_multi_layer_step, cemaneige_step
+from pydrology.cemaneige.types import CemaNeige, CemaNeigeMultiLayerState, CemaNeigeSingleLayerState
 
 EXPECTED_FLUX_KEYS = {
     "snow_pliq",

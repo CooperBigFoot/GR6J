@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from gr6j.calibration.metrics import (
+from pydrology.calibration.metrics import (
     METRICS,
     get_metric,
     list_metrics,

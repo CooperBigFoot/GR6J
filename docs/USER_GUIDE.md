@@ -1,6 +1,6 @@
-# GR6J User Guide
+# PyDrology User Guide
 
-A complete guide to using the GR6J hydrological model Python implementation.
+A complete guide to using the PyDrology hydrological modeling package, including the GR6J rainfall-runoff model and CemaNeige snow module.
 
 ## Table of Contents
 
@@ -8,12 +8,13 @@ A complete guide to using the GR6J hydrological model Python implementation.
 2. [Input Data](#input-data)
 3. [Model Parameters](#model-parameters)
 4. [Running the Model](#running-the-model)
-5. [Model Outputs](#model-outputs)
-6. [Snow Module](#snow-module)
-7. [Advanced Usage](#advanced-usage)
-8. [Utilities](#utilities)
-9. [Calibration](#calibration)
-10. [Common Errors](#common-errors)
+5. [Model Selection](#model-selection)
+6. [Model Outputs](#model-outputs)
+7. [Snow Module](#snow-module)
+8. [Advanced Usage](#advanced-usage)
+9. [Utilities](#utilities)
+10. [Calibration](#calibration)
+11. [Common Errors](#common-errors)
 
 ---
 
@@ -25,7 +26,7 @@ The simplest way to run the model is with minimal forcing data and default param
 
 ```python
 import numpy as np
-from gr6j import ForcingData, Parameters, run
+from pydrology import ForcingData, Parameters, run
 
 # Create forcing data
 n_days = 365
@@ -54,11 +55,12 @@ print(output.gr6j.streamflow)  # numpy array of daily streamflow [mm/day]
 
 ### GR6J + CemaNeige Snow Module
 
-For cold-climate catchments with snow influence:
+For cold-climate catchments with snow influence, use the coupled GR6J-CemaNeige model:
 
 ```python
 import numpy as np
-from gr6j import Catchment, CemaNeige, ForcingData, Parameters, run
+from pydrology import Catchment, ForcingData
+from pydrology.models.gr6j_cemaneige import Parameters, run
 
 # Create forcing data with temperature
 n_days = 365
@@ -74,16 +76,10 @@ catchment = Catchment(
     mean_annual_solid_precip=150.0,  # [mm/year]
 )
 
-# Define snow module parameters
-snow = CemaNeige(
-    ctg=0.97,  # Thermal state coefficient [-]
-    kf=2.5,    # Degree-day melt factor [mm/deg C/day]
-)
-
-# Define GR6J parameters with snow module
+# Define GR6J-CemaNeige parameters (8 parameters total)
 params = Parameters(
-    x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0,
-    snow=snow,  # Attach snow module
+    x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0,  # GR6J
+    ctg=0.97, kf=2.5,  # CemaNeige
 )
 
 # Run the model
@@ -112,7 +108,7 @@ print(output.snow.snow_melt)    # [mm/day]
 | `pet` | `np.ndarray` (float64) | Yes | Potential evapotranspiration [mm/day] |
 | `temp` | `np.ndarray` (float64) | No* | Temperature [deg C] |
 
-*Required when snow module is enabled (`params.snow` is set).
+*Required when using the GR6J-CemaNeige coupled model.
 
 **Validation Rules:**
 
@@ -126,7 +122,7 @@ print(output.snow.snow_melt)    # [mm/day]
 
 ```python
 import numpy as np
-from gr6j import ForcingData
+from pydrology import ForcingData
 
 # Basic creation
 forcing = ForcingData(
@@ -167,7 +163,7 @@ Static catchment properties required for the snow module.
 **Example:**
 
 ```python
-from gr6j import Catchment
+from pydrology import Catchment
 
 # Basic catchment (single layer)
 catchment = Catchment(
@@ -188,7 +184,7 @@ catchment_ml = Catchment(
 
 ## Model Parameters
 
-### Parameters (GR6J)
+### GR6J Parameters
 
 The GR6J model has 6 calibrated parameters:
 
@@ -210,10 +206,10 @@ The GR6J model has 6 calibrated parameters:
 - **x5**: Threshold controlling when groundwater exchange reverses direction.
 - **x6**: Controls the exponential store contribution to slow baseflow (unique to GR6J).
 
-**Example:**
+**Example (GR6J only):**
 
 ```python
-from gr6j import Parameters
+from pydrology import Parameters
 
 params = Parameters(
     x1=350.0,
@@ -225,16 +221,17 @@ params = Parameters(
 )
 ```
 
-### CemaNeige (Snow Module)
+### GR6J-CemaNeige Parameters (8 parameters)
 
-The CemaNeige snow module has 2 calibrated parameters:
+When using the coupled model, the Parameters class includes both GR6J and CemaNeige parameters:
 
 | Parameter | Description | Unit |
 |-----------|-------------|------|
+| **x1-x6** | GR6J parameters (see above) | various |
 | **ctg** | Thermal state weighting coefficient | - |
 | **kf** | Degree-day melt factor | mm/deg C/day |
 
-**Typical Calibrated Values:**
+**Typical Calibrated Values for CemaNeige:**
 
 Based on validation across hundreds of catchments:
 
@@ -248,49 +245,43 @@ Based on validation across hundreds of catchments:
 - **ctg**: Controls thermal inertia of the snow pack. Values close to 1 mean slow temperature response; close to 0 means rapid adjustment to air temperature.
 - **kf**: Controls how much snow melts per degree above 0 deg C. Higher values mean faster melt.
 
-**Example:**
+**Example (GR6J-CemaNeige):**
 
 ```python
-from gr6j import CemaNeige
+from pydrology.models.gr6j_cemaneige import Parameters
 
-snow = CemaNeige(
-    ctg=0.97,
-    kf=2.5,
-)
-```
-
-### has_snow Property
-
-Check if snow module is enabled:
-
-```python
-from gr6j import CemaNeige, Parameters
-
-# Without snow
-params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5)
-print(params.has_snow)  # False
-
-# With snow
-params_snow = Parameters(
+params = Parameters(
     x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5,
-    snow=CemaNeige(ctg=0.97, kf=2.5),
+    ctg=0.97, kf=2.5,
 )
-print(params_snow.has_snow)  # True
 ```
 
 ---
 
 ## Running the Model
 
-### Function Signature
+### GR6J Function Signature
 
 ```python
+from pydrology import run
+
 def run(
     params: Parameters,
     forcing: ForcingData,
-    catchment: Catchment | None = None,
     initial_state: State | None = None,
-    initial_snow_state: CemaNeigeSingleLayerState | CemaNeigeMultiLayerState | None = None,
+) -> ModelOutput:
+```
+
+### GR6J-CemaNeige Function Signature
+
+```python
+from pydrology.models.gr6j_cemaneige import run
+
+def run(
+    params: Parameters,
+    forcing: ForcingData,
+    catchment: Catchment,
+    initial_state: State | None = None,
 ) -> ModelOutput:
 ```
 
@@ -298,13 +289,12 @@ def run(
 
 | Argument | Type | Required | Description |
 |----------|------|----------|-------------|
-| `params` | `Parameters` | Yes | Model parameters (x1-x6) with optional snow |
+| `params` | `Parameters` | Yes | Model parameters |
 | `forcing` | `ForcingData` | Yes | Input forcing data |
 | `catchment` | `Catchment` | No* | Catchment properties |
-| `initial_state` | `State` | No | Initial GR6J state |
-| `initial_snow_state` | `CemaNeigeSingleLayerState \| CemaNeigeMultiLayerState` | No | Initial snow state |
+| `initial_state` | `State` | No | Initial model state |
 
-*Required when snow module is enabled.
+*Required for GR6J-CemaNeige.
 
 **Returns:**
 
@@ -312,10 +302,10 @@ def run(
 
 ### Examples
 
-**Basic Run:**
+**GR6J Basic Run:**
 
 ```python
-from gr6j import ForcingData, Parameters, run
+from pydrology import ForcingData, Parameters, run
 
 params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5)
 forcing = ForcingData(time=time_arr, precip=precip_arr, pet=pet_arr)
@@ -323,10 +313,10 @@ forcing = ForcingData(time=time_arr, precip=precip_arr, pet=pet_arr)
 output = run(params, forcing)
 ```
 
-**Run with Custom Initial State:**
+**GR6J with Custom Initial State:**
 
 ```python
-from gr6j import ForcingData, Parameters, State, run
+from pydrology import ForcingData, Parameters, State, run
 import numpy as np
 
 params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5)
@@ -344,19 +334,93 @@ initial_state = State(
 output = run(params, forcing, initial_state=initial_state)
 ```
 
-**Run with Snow Module:**
+**GR6J-CemaNeige Run:**
 
 ```python
-from gr6j import Catchment, CemaNeige, ForcingData, Parameters, run
+from pydrology import Catchment, ForcingData
+from pydrology.models.gr6j_cemaneige import Parameters, run
 
 params = Parameters(
     x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5,
-    snow=CemaNeige(ctg=0.97, kf=2.5),
+    ctg=0.97, kf=2.5,
 )
 forcing = ForcingData(time=time_arr, precip=precip_arr, pet=pet_arr, temp=temp_arr)
 catchment = Catchment(mean_annual_solid_precip=150.0)
 
 output = run(params, forcing, catchment=catchment)
+```
+
+---
+
+## Model Selection
+
+PyDrology provides a model registry for dynamic model discovery and selection. This is particularly useful for calibration where you want to specify the model as a parameter.
+
+### Available Models
+
+| Model | Parameters | Description |
+|-------|------------|-------------|
+| `gr6j` | 6 | GR6J rainfall-runoff model |
+| `gr6j_cemaneige` | 8 | GR6J coupled with CemaNeige snow module |
+
+### Using the Registry
+
+**List available models:**
+
+```python
+from pydrology import list_models
+
+print(list_models())  # ['gr6j', 'gr6j_cemaneige']
+```
+
+**Get model information:**
+
+```python
+from pydrology import get_model_info
+
+info = get_model_info("gr6j")
+print(info["param_names"])      # ('x1', 'x2', 'x3', 'x4', 'x5', 'x6')
+print(info["default_bounds"])   # {'x1': (1.0, 2500.0), ...}
+print(info["state_size"])       # 63
+```
+
+**Get model module:**
+
+```python
+from pydrology import get_model
+
+model = get_model("gr6j_cemaneige")
+params = model.Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5, ctg=0.97, kf=2.5)
+output = model.run(params, forcing, catchment=catchment)
+```
+
+### Model Selection in Calibration
+
+When calibrating, specify the model using the `model` parameter:
+
+```python
+from pydrology import calibrate
+
+# Calibrate GR6J (6 parameters)
+result = calibrate(
+    model="gr6j",
+    forcing=forcing,
+    observed=observed,
+    objectives=["nse"],
+    use_default_bounds=True,
+    warmup=365,
+)
+
+# Calibrate GR6J-CemaNeige (8 parameters)
+result = calibrate(
+    model="gr6j_cemaneige",
+    forcing=forcing,
+    observed=observed,
+    objectives=["nse"],
+    use_default_bounds=True,
+    catchment=catchment,  # Required for snow model
+    warmup=365,
+)
 ```
 
 ---
@@ -516,27 +580,25 @@ df[['qr', 'qrexp', 'qd']].plot()
 
 ### Enabling Snow
 
-The snow module is enabled by attaching a `CemaNeige` object to the `Parameters`:
+For snow-affected catchments, use the coupled GR6J-CemaNeige model from `pydrology.models.gr6j_cemaneige`:
 
 ```python
-from gr6j import CemaNeige, Parameters
+from pydrology import Catchment, ForcingData
+from pydrology.models.gr6j_cemaneige import Parameters, run
 
-# Create snow parameters
-snow = CemaNeige(
-    ctg=0.97,  # Thermal state coefficient [-]
-    kf=2.5,    # Degree-day melt factor [mm/deg C/day]
-)
-
-# Attach to GR6J parameters
+# Create snow parameters (8 total: 6 GR6J + 2 CemaNeige)
 params = Parameters(
-    x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5,
-    snow=snow,
+    x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5,  # GR6J
+    ctg=0.97, kf=2.5,  # CemaNeige
 )
+
+# Catchment properties (required for snow)
+catchment = Catchment(mean_annual_solid_precip=150.0)
 ```
 
 ### Required Inputs
 
-When snow is enabled, two additional inputs are required:
+When using GR6J-CemaNeige, two additional inputs are required:
 
 1. **Temperature data** in `ForcingData`:
 
@@ -552,7 +614,7 @@ forcing = ForcingData(
 1. **Catchment properties** with mean annual solid precipitation:
 
 ```python
-from gr6j import Catchment
+from pydrology import Catchment
 
 catchment = Catchment(
     mean_annual_solid_precip=150.0,  # [mm/year]
@@ -562,37 +624,14 @@ catchment = Catchment(
 output = run(params, forcing, catchment=catchment)
 ```
 
-### Snow Initialization
-
-The snow state is automatically initialized if not provided. You can also provide custom initial snow state:
-
-```python
-from gr6j import CemaNeigeSingleLayerState
-
-# Default initialization (recommended for fresh runs)
-initial_snow = CemaNeigeSingleLayerState.initialize(
-    mean_annual_solid_precip=150.0
-)
-# Creates: g=0 mm, etg=0 deg C, gthreshold=135 mm (0.9 * 150)
-
-# Custom initialization (for warm-starting)
-custom_snow_state = CemaNeigeSingleLayerState(
-    g=50.0,           # Current snow pack [mm]
-    etg=-2.0,         # Thermal state [deg C]
-    gthreshold=135.0, # Melt threshold [mm]
-    glocalmax=135.0,  # Local maximum [mm]
-)
-
-output = run(params, forcing, catchment=catchment, initial_snow_state=custom_snow_state)
-```
-
 ### Multi-Layer Snow Simulation
 
 For better representation of snow processes in mountainous catchments, CemaNeige supports multiple elevation bands:
 
 ```python
 import numpy as np
-from gr6j import Catchment, CemaNeige, CemaNeigeMultiLayerState, ForcingData, Parameters, run
+from pydrology import Catchment, ForcingData
+from pydrology.models.gr6j_cemaneige import Parameters, run
 
 # Define multi-layer catchment
 catchment = Catchment(
@@ -604,7 +643,7 @@ catchment = Catchment(
 
 params = Parameters(
     x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5,
-    snow=CemaNeige(ctg=0.97, kf=2.5),
+    ctg=0.97, kf=2.5,
 )
 
 forcing = ForcingData(
@@ -625,20 +664,6 @@ print(output.snow_layers.layer_temp)  # 2D array: (n_timesteps, 5)
 ```
 
 Each layer runs an independent CemaNeige instance with temperature and precipitation extrapolated using elevation gradients. The aggregated output (`output.snow`) is the area-weighted average, while `output.snow_layers` provides per-layer detail.
-
-**Custom initial state:**
-
-```python
-from gr6j import CemaNeigeMultiLayerState
-
-# Initialize multi-layer snow state
-initial_state = CemaNeigeMultiLayerState.initialize(
-    n_layers=5,
-    mean_annual_solid_precip=150.0,
-)
-
-output = run(params, forcing, catchment=catchment, initial_snow_state=initial_state)
-```
 
 ### How Snow Module Works
 
@@ -663,7 +688,7 @@ The GR6J model state can be initialized in two ways:
 **Option 1: Derived from parameters (recommended for fresh runs)**
 
 ```python
-from gr6j import Parameters, State
+from pydrology import Parameters, State
 
 params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5)
 
@@ -678,7 +703,7 @@ initial_state = State.initialize(params)
 
 ```python
 import numpy as np
-from gr6j import State
+from pydrology import State
 
 # Values are direct mm amounts, independent of parameters
 custom_state = State(
@@ -697,8 +722,8 @@ output = run(params, forcing, initial_state=custom_state)
 For custom applications or debugging, you can execute the model one timestep at a time:
 
 ```python
-from gr6j import Parameters, State, step
-from gr6j.model.unit_hydrographs import compute_uh_ordinates
+from pydrology import Parameters, State, step
+from pydrology.processes.unit_hydrographs import compute_uh_ordinates
 
 # Setup
 params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5)
@@ -803,7 +828,7 @@ The `analyze_dem()` utility computes elevation statistics from a basin-clipped D
 **Basic usage:**
 
 ```python
-from gr6j.utils import analyze_dem
+from pydrology.utils import analyze_dem
 
 dem = analyze_dem("data/my_basin_dem.tif")
 print(dem)
@@ -819,8 +844,9 @@ print(dem)
 **Using with CemaNeige multi-layer:**
 
 ```python
-from gr6j import Catchment, CemaNeige, Parameters
-from gr6j.utils import analyze_dem
+from pydrology import Catchment
+from pydrology.models.gr6j_cemaneige import Parameters
+from pydrology.utils import analyze_dem
 
 # Analyze the DEM
 dem = analyze_dem("data/basin_dem.tif")
@@ -835,7 +861,7 @@ catchment = Catchment(
 
 params = Parameters(
     x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5,
-    snow=CemaNeige(ctg=0.97, kf=2.5),
+    ctg=0.97, kf=2.5,
 )
 ```
 
@@ -889,19 +915,19 @@ With default thresholds $T_{snow} = -1°C$ and $T_{rain} = 3°C$.
 Compute the fraction of precipitation falling as snow.
 
 ```python
-from gr6j.utils import compute_solid_fraction
+from pydrology.utils import compute_solid_fraction
 import numpy as np
 
-temp = np.array([-5.0, 0.0, 1.0, 5.0])  # °C
+temp = np.array([-5.0, 0.0, 1.0, 5.0])  # deg C
 fraction = compute_solid_fraction(temp)
 print(fraction)  # [1.0, 0.75, 0.5, 0.0]
 ```
 
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
-| `temp` | `np.ndarray` | required | Temperature array [°C] |
-| `t_snow` | `float` | -1.0 | All-snow threshold [°C] |
-| `t_rain` | `float` | 3.0 | All-rain threshold [°C] |
+| `temp` | `np.ndarray` | required | Temperature array [deg C] |
+| `t_snow` | `float` | -1.0 | All-snow threshold [deg C] |
+| `t_rain` | `float` | 3.0 | All-rain threshold [deg C] |
 
 **Returns:** `np.ndarray` - Solid fraction values in [0, 1]
 
@@ -910,11 +936,11 @@ print(fraction)  # [1.0, 0.75, 0.5, 0.0]
 Compute solid precipitation from total precipitation and temperature.
 
 ```python
-from gr6j.utils import compute_solid_precip
+from pydrology.utils import compute_solid_precip
 import numpy as np
 
 precip = np.array([10.0, 10.0, 10.0, 10.0])  # mm/day
-temp = np.array([-5.0, 0.0, 1.0, 5.0])       # °C
+temp = np.array([-5.0, 0.0, 1.0, 5.0])       # deg C
 solid = compute_solid_precip(precip, temp)
 print(solid)  # [10.0, 7.5, 5.0, 0.0]
 ```
@@ -922,9 +948,9 @@ print(solid)  # [10.0, 7.5, 5.0, 0.0]
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
 | `precip` | `np.ndarray` | required | Total precipitation [mm/day] |
-| `temp` | `np.ndarray` | required | Temperature [°C] |
-| `t_snow` | `float` | -1.0 | All-snow threshold [°C] |
-| `t_rain` | `float` | 3.0 | All-rain threshold [°C] |
+| `temp` | `np.ndarray` | required | Temperature [deg C] |
+| `t_snow` | `float` | -1.0 | All-snow threshold [deg C] |
+| `t_rain` | `float` | 3.0 | All-rain threshold [deg C] |
 
 **Returns:** `np.ndarray` - Solid precipitation [mm/day]
 
@@ -933,12 +959,12 @@ print(solid)  # [10.0, 7.5, 5.0, 0.0]
 Compute mean annual solid precipitation for CemaNeige configuration.
 
 ```python
-from gr6j.utils import compute_mean_annual_solid_precip
+from pydrology.utils import compute_mean_annual_solid_precip
 import numpy as np
 
 # Load your forcing data (example with 3 years of daily data)
 precip = np.random.uniform(0, 20, 365 * 3)  # mm/day
-temp = np.random.uniform(-10, 25, 365 * 3)  # °C
+temp = np.random.uniform(-10, 25, 365 * 3)  # deg C
 
 mean_annual = compute_mean_annual_solid_precip(precip, temp)
 print(f"Mean annual solid precip: {mean_annual:.1f} mm/year")
@@ -947,17 +973,18 @@ print(f"Mean annual solid precip: {mean_annual:.1f} mm/year")
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
 | `precip` | `np.ndarray` | required | Daily precipitation [mm/day] |
-| `temp` | `np.ndarray` | required | Daily temperature [°C] |
-| `t_snow` | `float` | -1.0 | All-snow threshold [°C] |
-| `t_rain` | `float` | 3.0 | All-rain threshold [°C] |
+| `temp` | `np.ndarray` | required | Daily temperature [deg C] |
+| `t_snow` | `float` | -1.0 | All-snow threshold [deg C] |
+| `t_rain` | `float` | 3.0 | All-rain threshold [deg C] |
 
 **Returns:** `float` - Mean annual solid precipitation [mm/year]
 
 **Integration with Catchment:**
 
 ```python
-from gr6j import Catchment, CemaNeige, ForcingData, Parameters, run
-from gr6j.utils import compute_mean_annual_solid_precip
+from pydrology import Catchment, ForcingData
+from pydrology.models.gr6j_cemaneige import Parameters, run
+from pydrology.utils import compute_mean_annual_solid_precip
 
 # Compute from historical forcing data
 mean_annual_solid = compute_mean_annual_solid_precip(
@@ -970,7 +997,7 @@ catchment = Catchment(mean_annual_solid_precip=mean_annual_solid)
 
 params = Parameters(
     x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5,
-    snow=CemaNeige(ctg=0.97, kf=2.5),
+    ctg=0.97, kf=2.5,
 )
 
 output = run(params, forcing, catchment=catchment)
@@ -980,7 +1007,7 @@ output = run(params, forcing, catchment=catchment)
 
 ## Calibration
 
-The GR6J package includes automatic parameter calibration using evolutionary algorithms via the [ctrl-freak](https://github.com/hydrosolutions/ctrl-freak) library.
+The pydrology package includes automatic parameter calibration using evolutionary algorithms via the [ctrl-freak](https://github.com/hydrosolutions/ctrl-freak) library.
 
 ### Single-Objective Calibration
 
@@ -988,7 +1015,7 @@ Optimize parameters to maximize a single metric (e.g., Nash-Sutcliffe Efficiency
 
 ```python
 import numpy as np
-from gr6j import ForcingData, calibrate, ObservedData, Parameters
+from pydrology import ForcingData, calibrate, ObservedData
 
 # Prepare forcing data (including warmup period)
 n_days = 365 + 365  # 1 year warmup + 1 year calibration
@@ -1014,8 +1041,9 @@ bounds = {
     "x6": (0.01, 20),   # Exponential store parameter [mm]
 }
 
-# Run calibration
+# Run calibration for GR6J
 result = calibrate(
+    model="gr6j",
     forcing=forcing,
     observed=observed,
     objectives=["nse"],
@@ -1034,6 +1062,7 @@ By default, calibration displays a progress bar showing the current generation a
 
 ```python
 result = calibrate(
+    model="gr6j",
     ...,
     progress=False,  # Disable progress bar
 )
@@ -1044,34 +1073,26 @@ result = calibrate(
 Optimize for multiple metrics simultaneously to obtain a Pareto front:
 
 ```python
-from gr6j import Catchment, ForcingData, ObservedData, calibrate
+from pydrology import Catchment, ForcingData, ObservedData, calibrate
 
-# With snow module enabled
+# With GR6J-CemaNeige snow module
 forcing = ForcingData(
     time=np.datetime64("2019-01-01") + np.arange(n_days),
     precip=precip_data,
     pet=pet_data,
-    temp=temp_data,
+    temp=temp_data,  # Required for snow module
 )
 
 catchment = Catchment(mean_annual_solid_precip=150.0)
 
-# Bounds including snow parameters
-bounds = {
-    "x1": (1, 2500), "x2": (-5, 5), "x3": (1, 1000),
-    "x4": (0.5, 10), "x5": (-4, 4), "x6": (0.01, 20),
-    "ctg": (0, 1),      # Thermal state coefficient [-]
-    "kf": (1, 10),      # Degree-day melt factor [mm/°C/day]
-}
-
 # Multi-objective returns list of Pareto-optimal solutions
 solutions = calibrate(
+    model="gr6j_cemaneige",  # 8 parameters: 6 GR6J + 2 CemaNeige
     forcing=forcing,
     observed=observed,
     objectives=["nse", "log_nse"],
-    bounds=bounds,
-    catchment=catchment,
-    snow=True,
+    use_default_bounds=True,  # Use model's default bounds
+    catchment=catchment,  # Required for snow models
     warmup=365,
     population_size=50,
     generations=100,
@@ -1109,7 +1130,7 @@ Container for observed streamflow matching the post-warmup period of forcing dat
 List available metrics programmatically:
 
 ```python
-from gr6j import list_metrics
+from pydrology import list_metrics
 print(list_metrics())  # ['kge', 'log_nse', 'mae', 'nse', 'pbias', 'rmse']
 ```
 
@@ -1118,7 +1139,7 @@ print(list_metrics())  # ['kge', 'log_nse', 'mae', 'nse', 'pbias', 'rmse']
 Register custom metrics using the `@register` decorator:
 
 ```python
-from gr6j.calibration.metrics import register
+from pydrology.calibration.metrics import register
 import numpy as np
 
 @register("minimize")
@@ -1155,6 +1176,7 @@ observed = ObservedData(
 )
 
 result = calibrate(
+    model="gr6j",
     forcing=forcing,       # Full period (warmup + calibration)
     observed=observed,     # Post-warmup only
     warmup=warmup,
@@ -1172,7 +1194,7 @@ By default, `calibrate()` displays a tqdm progress bar that shows:
 
 Example output:
 ```
-Calibrating: 45%|████████████              | 45/100 [00:30<00:37, 1.50gen/s, best=0.8523]
+Calibrating: 45%|------------------------| 45/100 [00:30<00:37, 1.50gen/s, best=0.8523]
 ```
 
 To disable the progress bar for batch processing or when using custom logging:
@@ -1186,6 +1208,7 @@ Speed up calibration by evaluating individuals in parallel:
 
 ```python
 result = calibrate(
+    model="gr6j",
     forcing=forcing,
     observed=observed,
     objectives=["nse"],
@@ -1228,9 +1251,9 @@ result = calibrate(
 
 ## Common Errors
 
-### "forcing.temp required when snow module enabled"
+### "forcing.temp required when using GR6J-CemaNeige"
 
-**Cause:** You enabled snow (`params.snow` is set) but did not provide temperature data.
+**Cause:** You're using the GR6J-CemaNeige model but did not provide temperature data.
 
 **Solution:** Add temperature to your ForcingData:
 
@@ -1243,14 +1266,14 @@ forcing = ForcingData(
 )
 ```
 
-### "catchment required when snow module enabled"
+### "catchment required for GR6J-CemaNeige"
 
-**Cause:** You enabled snow but did not provide a Catchment object.
+**Cause:** You're using the GR6J-CemaNeige model but did not provide a Catchment object.
 
 **Solution:** Create a Catchment with mean_annual_solid_precip:
 
 ```python
-from gr6j import Catchment
+from pydrology import Catchment
 
 catchment = Catchment(mean_annual_solid_precip=150.0)
 output = run(params, forcing, catchment=catchment)  # Pass catchment!
@@ -1264,7 +1287,7 @@ output = run(params, forcing, catchment=catchment)  # Pass catchment!
 
 ```python
 import numpy as np
-from gr6j import Catchment
+from pydrology import Catchment
 
 catchment = Catchment(
     mean_annual_solid_precip=150.0,
@@ -1401,7 +1424,7 @@ assert precip.shape == temp.shape, "Arrays must have the same shape"
 **Solution:** Ensure `t_snow < t_rain`:
 
 ```python
-from gr6j.utils import compute_solid_fraction
+from pydrology.utils import compute_solid_fraction
 
 # Correct: t_snow < t_rain
 fraction = compute_solid_fraction(temp, t_snow=-1.0, t_rain=3.0)
@@ -1414,7 +1437,7 @@ fraction = compute_solid_fraction(temp, t_snow=-1.0, t_rain=3.0)
 
 ## Performance Notes
 
-The GR6J implementation uses [Numba](https://numba.pydata.org/) for just-in-time (JIT) compilation of the core model functions. This provides significant performance improvements over pure Python.
+The pydrology implementation uses [Numba](https://numba.pydata.org/) for just-in-time (JIT) compilation of the core model functions. This provides significant performance improvements over pure Python.
 
 ### JIT Compilation Overhead
 
@@ -1469,6 +1492,7 @@ result = calibrate(
 - [Model equations and algorithm](MODEL_DEFINITION.md)
 - [Snow module technical details](CEMANEIGE.md)
 - [Forcing data contract](FORCING_DATA_CONTRACT.md)
+- [Model interface contract](MODEL_CONTRACT.md)
 
 ## References
 

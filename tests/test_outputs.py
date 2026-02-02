@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from gr6j import GR6JOutput, ModelOutput, SnowLayerOutputs, SnowOutput
+from pydrology import GR6JOutput, ModelOutput, SnowLayerOutputs, SnowOutput
 
 
 class TestGR6JOutput:
@@ -304,16 +304,19 @@ class TestModelOutput:
         """Provide a sample time array for testing."""
         return pd.date_range("2020-01-01", periods=5, freq="D").to_numpy()
 
-    def test_creates_with_gr6j_only(self, sample_gr6j_output: GR6JOutput, sample_time_array: np.ndarray) -> None:
-        """Test creation without snow output."""
+    def test_creates_with_fluxes_only(self, sample_gr6j_output: GR6JOutput, sample_time_array: np.ndarray) -> None:
+        """Test creation without snow output using fluxes field."""
         output = ModelOutput(
             time=sample_time_array,
-            gr6j=sample_gr6j_output,
+            fluxes=sample_gr6j_output,
             snow=None,
         )
 
         assert output.snow is None
+        assert output.fluxes is not None
+        # Test backward compatibility: gr6j property still works
         assert output.gr6j is not None
+        assert output.gr6j is output.fluxes
 
     def test_creates_with_snow(
         self,
@@ -324,18 +327,18 @@ class TestModelOutput:
         """Test creation with snow output."""
         output = ModelOutput(
             time=sample_time_array,
-            gr6j=sample_gr6j_output,
+            fluxes=sample_gr6j_output,
             snow=sample_snow_output,
         )
 
         assert output.snow is not None
-        assert output.gr6j is not None
+        assert output.fluxes is not None
 
     def test_len_returns_timestep_count(self, sample_gr6j_output: GR6JOutput, sample_time_array: np.ndarray) -> None:
         """Test __len__ returns correct length."""
         output = ModelOutput(
             time=sample_time_array,
-            gr6j=sample_gr6j_output,
+            fluxes=sample_gr6j_output,
         )
 
         assert len(output) == 5
@@ -344,7 +347,7 @@ class TestModelOutput:
         """Test to_dataframe produces DataFrame with 20 columns."""
         output = ModelOutput(
             time=sample_time_array,
-            gr6j=sample_gr6j_output,
+            fluxes=sample_gr6j_output,
         )
 
         df = output.to_dataframe()
@@ -362,7 +365,7 @@ class TestModelOutput:
         """Test to_dataframe produces DataFrame with 32 columns when snow enabled."""
         output = ModelOutput(
             time=sample_time_array,
-            gr6j=sample_gr6j_output,
+            fluxes=sample_gr6j_output,
             snow=sample_snow_output,
         )
 
@@ -376,7 +379,7 @@ class TestModelOutput:
         """Test DataFrame index is the time array."""
         output = ModelOutput(
             time=sample_time_array,
-            gr6j=sample_gr6j_output,
+            fluxes=sample_gr6j_output,
         )
 
         df = output.to_dataframe()
@@ -384,3 +387,12 @@ class TestModelOutput:
         assert df.index.name == "time"
         np.testing.assert_array_equal(df.index.values, sample_time_array)
         assert len(df) == 5
+
+    def test_streamflow_property(self, sample_gr6j_output: GR6JOutput, sample_time_array: np.ndarray) -> None:
+        """Test streamflow property returns fluxes.streamflow."""
+        output = ModelOutput(
+            time=sample_time_array,
+            fluxes=sample_gr6j_output,
+        )
+
+        np.testing.assert_array_equal(output.streamflow, output.fluxes.streamflow)

@@ -3,32 +3,34 @@
 import numpy as np
 import pytest
 
-from gr6j import Catchment, ForcingData, Parameters
-from gr6j.calibration import ObservedData, Solution, calibrate
-from gr6j.calibration.calibrate import (
-    _array_to_parameters,
+from pydrology import Catchment, ForcingData, Parameters
+from pydrology.calibration import ObservedData, Solution, calibrate
+from pydrology.calibration.calibrate import (
     _validate_bounds,
-    _validate_snow_config,
     _validate_warmup,
 )
+from pydrology.registry import get_model
 
 
 class TestValidateBounds:
     """Tests for _validate_bounds helper."""
 
-    def test_empty_bounds_raises(self) -> None:
-        """Empty bounds should raise ValueError."""
-        with pytest.raises(ValueError, match="cannot be empty"):
-            _validate_bounds({}, snow=False)
+    def test_no_bounds_and_no_default_raises(self) -> None:
+        """Must provide bounds or set use_default_bounds=True."""
+        model_module = get_model("gr6j")
+        with pytest.raises(ValueError, match="Must provide bounds or set use_default_bounds"):
+            _validate_bounds(None, use_default_bounds=False, model_module=model_module)
 
     def test_missing_gr6j_params_raises(self) -> None:
         """Missing GR6J parameters should raise ValueError."""
+        model_module = get_model("gr6j")
         bounds = {"x1": (1, 2500), "x2": (-5, 5)}  # Missing x3-x6
         with pytest.raises(ValueError, match="Missing bounds"):
-            _validate_bounds(bounds, snow=False)
+            _validate_bounds(bounds, use_default_bounds=False, model_module=model_module)
 
     def test_missing_snow_params_raises(self) -> None:
-        """Missing snow parameters when snow=True should raise ValueError."""
+        """Missing snow parameters for gr6j_cemaneige should raise ValueError."""
+        model_module = get_model("gr6j_cemaneige")
         bounds = {
             "x1": (1, 2500),
             "x2": (-5, 5),
@@ -38,10 +40,11 @@ class TestValidateBounds:
             "x6": (0.01, 20),
         }  # Missing ctg, kf
         with pytest.raises(ValueError, match="Missing bounds"):
-            _validate_bounds(bounds, snow=True)
+            _validate_bounds(bounds, use_default_bounds=False, model_module=model_module)
 
     def test_lower_ge_upper_raises(self) -> None:
         """Lower bound >= upper bound should raise ValueError."""
+        model_module = get_model("gr6j")
         bounds = {
             "x1": (2500, 1),  # Invalid: lower > upper
             "x2": (-5, 5),
@@ -51,10 +54,11 @@ class TestValidateBounds:
             "x6": (0.01, 20),
         }
         with pytest.raises(ValueError, match="Lower bound must be less than upper"):
-            _validate_bounds(bounds, snow=False)
+            _validate_bounds(bounds, use_default_bounds=False, model_module=model_module)
 
-    def test_valid_bounds_no_snow(self) -> None:
-        """Valid GR6J bounds should pass."""
+    def test_valid_bounds_gr6j(self) -> None:
+        """Valid GR6J bounds should return the bounds."""
+        model_module = get_model("gr6j")
         bounds = {
             "x1": (1, 2500),
             "x2": (-5, 5),
@@ -63,10 +67,12 @@ class TestValidateBounds:
             "x5": (-4, 4),
             "x6": (0.01, 20),
         }
-        _validate_bounds(bounds, snow=False)  # Should not raise
+        result = _validate_bounds(bounds, use_default_bounds=False, model_module=model_module)
+        assert result == bounds
 
-    def test_valid_bounds_with_snow(self) -> None:
-        """Valid GR6J + snow bounds should pass."""
+    def test_valid_bounds_gr6j_cemaneige(self) -> None:
+        """Valid GR6J-CemaNeige bounds should return the bounds."""
+        model_module = get_model("gr6j_cemaneige")
         bounds = {
             "x1": (1, 2500),
             "x2": (-5, 5),
@@ -75,44 +81,22 @@ class TestValidateBounds:
             "x5": (-4, 4),
             "x6": (0.01, 20),
             "ctg": (0, 1),
-            "kf": (0, 200),
+            "kf": (0, 10),
         }
-        _validate_bounds(bounds, snow=True)  # Should not raise
+        result = _validate_bounds(bounds, use_default_bounds=False, model_module=model_module)
+        assert result == bounds
 
+    def test_use_default_bounds_gr6j(self) -> None:
+        """use_default_bounds=True should return model's DEFAULT_BOUNDS."""
+        model_module = get_model("gr6j")
+        result = _validate_bounds(None, use_default_bounds=True, model_module=model_module)
+        assert result == model_module.DEFAULT_BOUNDS
 
-class TestValidateSnowConfig:
-    """Tests for _validate_snow_config helper."""
-
-    def test_no_snow_always_valid(self) -> None:
-        """When snow=False, any config should pass."""
-        forcing = ForcingData(
-            time=np.array(["2020-01-01", "2020-01-02"], dtype="datetime64"),
-            precip=np.array([10.0, 5.0]),
-            pet=np.array([3.0, 4.0]),
-        )
-        _validate_snow_config(snow=False, forcing=forcing, catchment=None)
-
-    def test_snow_without_temp_raises(self) -> None:
-        """snow=True without temp should raise ValueError."""
-        forcing = ForcingData(
-            time=np.array(["2020-01-01", "2020-01-02"], dtype="datetime64"),
-            precip=np.array([10.0, 5.0]),
-            pet=np.array([3.0, 4.0]),
-            temp=None,
-        )
-        with pytest.raises(ValueError, match="temp required"):
-            _validate_snow_config(snow=True, forcing=forcing, catchment=None)
-
-    def test_snow_without_catchment_raises(self) -> None:
-        """snow=True without catchment should raise ValueError."""
-        forcing = ForcingData(
-            time=np.array(["2020-01-01", "2020-01-02"], dtype="datetime64"),
-            precip=np.array([10.0, 5.0]),
-            pet=np.array([3.0, 4.0]),
-            temp=np.array([5.0, 6.0]),
-        )
-        with pytest.raises(ValueError, match="catchment required"):
-            _validate_snow_config(snow=True, forcing=forcing, catchment=None)
+    def test_use_default_bounds_gr6j_cemaneige(self) -> None:
+        """use_default_bounds=True should return model's DEFAULT_BOUNDS."""
+        model_module = get_model("gr6j_cemaneige")
+        result = _validate_bounds(None, use_default_bounds=True, model_module=model_module)
+        assert result == model_module.DEFAULT_BOUNDS
 
 
 class TestValidateWarmup:
@@ -131,31 +115,6 @@ class TestValidateWarmup:
     def test_valid_warmup(self) -> None:
         """Valid warmup should pass."""
         _validate_warmup(warmup=10, forcing_length=100, observed_length=90)
-
-
-class TestArrayToParameters:
-    """Tests for _array_to_parameters helper."""
-
-    def test_no_snow(self) -> None:
-        """Without snow, should create Parameters with 6 values."""
-        x = np.array([350.0, 0.0, 90.0, 1.7, 0.0, 5.0])
-        params = _array_to_parameters(x, snow=False)
-        assert params.x1 == 350.0
-        assert params.x2 == 0.0
-        assert params.x3 == 90.0
-        assert params.x4 == 1.7
-        assert params.x5 == 0.0
-        assert params.x6 == 5.0
-        assert params.snow is None
-
-    def test_with_snow(self) -> None:
-        """With snow, should create Parameters with CemaNeige."""
-        x = np.array([350.0, 0.0, 90.0, 1.7, 0.0, 5.0, 0.97, 2.5])
-        params = _array_to_parameters(x, snow=True)
-        assert params.x1 == 350.0
-        assert params.snow is not None
-        assert params.snow.ctg == 0.97
-        assert params.snow.kf == 2.5
 
 
 class TestCalibrate:
@@ -183,7 +142,7 @@ class TestCalibrate:
 
     @pytest.fixture
     def simple_bounds(self) -> dict[str, tuple[float, float]]:
-        """Simple parameter bounds."""
+        """Simple parameter bounds for GR6J."""
         return {
             "x1": (100, 500),
             "x2": (-2, 2),
@@ -201,6 +160,7 @@ class TestCalibrate:
     ) -> None:
         """Single objective should return a Solution."""
         result = calibrate(
+            model="gr6j",
             forcing=simple_forcing,
             observed=simple_observed,
             objectives=["nse"],
@@ -211,6 +171,7 @@ class TestCalibrate:
             seed=42,
         )
         assert isinstance(result, Solution)
+        assert result.model == "gr6j"
         assert "nse" in result.score
         assert isinstance(result.parameters, Parameters)
 
@@ -222,6 +183,7 @@ class TestCalibrate:
     ) -> None:
         """Multiple objectives should return a list of Solutions."""
         result = calibrate(
+            model="gr6j",
             forcing=simple_forcing,
             observed=simple_observed,
             objectives=["nse", "log_nse"],
@@ -234,6 +196,7 @@ class TestCalibrate:
         assert isinstance(result, list)
         assert len(result) > 0
         assert all(isinstance(s, Solution) for s in result)
+        assert all(s.model == "gr6j" for s in result)
         assert all("nse" in s.score and "log_nse" in s.score for s in result)
 
     def test_deterministic_with_seed(
@@ -244,6 +207,7 @@ class TestCalibrate:
     ) -> None:
         """Same seed should produce same results."""
         kwargs = {
+            "model": "gr6j",
             "forcing": simple_forcing,
             "observed": simple_observed,
             "objectives": {"nse": "maximize"},
@@ -258,8 +222,75 @@ class TestCalibrate:
         assert result1.parameters.x1 == result2.parameters.x1
         assert result1.score["nse"] == result2.score["nse"]
 
-    def test_snow_calibration(self) -> None:
-        """Calibration with snow should work."""
+    def test_use_default_bounds(
+        self,
+        simple_forcing: ForcingData,
+        simple_observed: ObservedData,
+    ) -> None:
+        """Calibration with use_default_bounds=True should work."""
+        result = calibrate(
+            model="gr6j",
+            forcing=simple_forcing,
+            observed=simple_observed,
+            objectives=["nse"],
+            use_default_bounds=True,
+            warmup=10,
+            population_size=10,
+            generations=3,
+            seed=42,
+        )
+        assert isinstance(result, Solution)
+        assert result.model == "gr6j"
+
+    def test_unknown_model_raises_keyerror(
+        self,
+        simple_forcing: ForcingData,
+        simple_observed: ObservedData,
+    ) -> None:
+        """Unknown model should raise KeyError."""
+        with pytest.raises(KeyError, match="Unknown model"):
+            calibrate(
+                model="unknown_model",
+                forcing=simple_forcing,
+                observed=simple_observed,
+                objectives=["nse"],
+                use_default_bounds=True,
+                warmup=10,
+                population_size=10,
+                generations=3,
+                seed=42,
+            )
+
+    def test_gr6j_cemaneige_requires_catchment(self) -> None:
+        """GR6J-CemaNeige should require catchment parameter."""
+        n_days = 30
+        forcing = ForcingData(
+            time=np.datetime64("2020-01-01") + np.arange(n_days),
+            precip=np.random.default_rng(42).exponential(5.0, n_days),
+            pet=np.full(n_days, 3.5),
+            temp=np.random.default_rng(42).uniform(-5.0, 10.0, n_days),
+        )
+        warmup = 10
+        observed = ObservedData(
+            time=forcing.time[warmup:],
+            streamflow=np.random.default_rng(42).uniform(1.0, 5.0, n_days - warmup),
+        )
+
+        with pytest.raises(ValueError, match="requires catchment"):
+            calibrate(
+                model="gr6j_cemaneige",
+                forcing=forcing,
+                observed=observed,
+                objectives=["nse"],
+                use_default_bounds=True,
+                warmup=warmup,
+                population_size=10,
+                generations=3,
+                seed=42,
+            )
+
+    def test_gr6j_cemaneige_calibration(self) -> None:
+        """GR6J-CemaNeige calibration should work with catchment."""
         n_days = 30
         forcing = ForcingData(
             time=np.datetime64("2020-01-01") + np.arange(n_days),
@@ -273,24 +304,14 @@ class TestCalibrate:
             time=forcing.time[warmup:],
             streamflow=np.random.default_rng(42).uniform(1.0, 5.0, n_days - warmup),
         )
-        bounds = {
-            "x1": (100, 500),
-            "x2": (-2, 2),
-            "x3": (50, 200),
-            "x4": (1, 5),
-            "x5": (-2, 2),
-            "x6": (1, 10),
-            "ctg": (0.5, 1.0),
-            "kf": (1.0, 10.0),
-        }
 
         result = calibrate(
+            model="gr6j_cemaneige",
             forcing=forcing,
             observed=observed,
             objectives=["nse"],
-            bounds=bounds,
+            use_default_bounds=True,
             catchment=catchment,
-            snow=True,
             warmup=warmup,
             population_size=10,
             generations=3,
@@ -298,9 +319,10 @@ class TestCalibrate:
         )
 
         assert isinstance(result, Solution)
-        assert result.parameters.snow is not None
-        assert 0.5 <= result.parameters.snow.ctg <= 1.0
-        assert 1.0 <= result.parameters.snow.kf <= 10.0
+        assert result.model == "gr6j_cemaneige"
+        # Check that we have 8 parameters (6 GR6J + 2 CemaNeige)
+        assert hasattr(result.parameters, "ctg")
+        assert hasattr(result.parameters, "kf")
 
     def test_progress_true_runs_without_error(
         self,
@@ -310,6 +332,7 @@ class TestCalibrate:
     ) -> None:
         """Calibration with progress=True should run without error."""
         result = calibrate(
+            model="gr6j",
             forcing=simple_forcing,
             observed=simple_observed,
             objectives=["nse"],
@@ -330,6 +353,7 @@ class TestCalibrate:
     ) -> None:
         """Calibration with progress=False should run without error."""
         result = calibrate(
+            model="gr6j",
             forcing=simple_forcing,
             observed=simple_observed,
             objectives=["nse"],
@@ -350,6 +374,7 @@ class TestCalibrate:
     ) -> None:
         """Results should be identical with progress=True vs progress=False."""
         kwargs = {
+            "model": "gr6j",
             "forcing": simple_forcing,
             "observed": simple_observed,
             "objectives": ["nse"],
@@ -374,6 +399,7 @@ class TestCalibrate:
     ) -> None:
         """Multi-objective calibration should work with progress bar."""
         result = calibrate(
+            model="gr6j",
             forcing=simple_forcing,
             observed=simple_observed,
             objectives=["nse", "log_nse"],

@@ -3,6 +3,8 @@
 > **Génie Rural à 6 paramètres Journalier**
 > A lumped conceptual rainfall-runoff model for daily streamflow simulation
 
+This document describes the GR6J model as implemented in `pydrology.models.gr6j`.
+
 ---
 
 ## Table of Contents

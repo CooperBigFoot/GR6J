@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from gr6j import Catchment, ForcingData
+from pydrology import Catchment, ForcingData
 
 
 def _make_dates(n: int, start: str = "2020-01-01") -> np.ndarray:

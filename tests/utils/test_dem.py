@@ -15,7 +15,7 @@ import rasterio
 from rasterio.crs import CRS
 from rasterio.transform import from_bounds
 
-from gr6j.utils.dem import DEMStatistics, analyze_dem
+from pydrology.utils.dem import DEMStatistics, analyze_dem
 
 
 def _create_dem_file(path: Path, data: np.ndarray, nodata: float = -9999.0) -> None:

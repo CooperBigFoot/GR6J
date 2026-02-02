@@ -1,8 +1,6 @@
-# GR6J
+# PyDrology
 
-🟢 **Active Development** — This repository is part of an ongoing project and actively maintained.
-
-A Python implementation of the **GR6J** (Génie Rural à 6 paramètres Journalier) lumped conceptual rainfall-runoff model for daily streamflow simulation.
+A Python implementation of lumped conceptual rainfall-runoff models for daily streamflow simulation, including **GR6J** (Genie Rural a 6 parametres Journalier) and the **CemaNeige** snow module.
 
 ## Overview
 
@@ -18,7 +16,7 @@ GR6J is an extension of the widely-used GR4J model, developed by INRAE (France),
 |----------|-------|
 | Time step | Daily |
 | Spatial resolution | Lumped (catchment-scale) |
-| Parameters | 6 GR6J + 2 CemaNeige + 1 Catchment (optional snow) |
+| Models | GR6J (6 params), GR6J-CemaNeige (8 params) |
 | Stores | 3 (Production, Routing, Exponential) |
 | Unit hydrographs | 2 (UH1 and UH2) |
 | Inputs | Precipitation (P), PET (E), Temperature (T, optional) |
@@ -28,17 +26,19 @@ GR6J is an extension of the widely-used GR4J model, developed by INRAE (France),
 
 ```bash
 # Using uv (recommended)
-uv add gr6j
+uv add pydrology
 
 # Using pip
-pip install gr6j
+pip install pydrology
 ```
 
-## Usage
+## Quick Start
+
+### GR6J Model
 
 ```python
 import numpy as np
-from gr6j import ForcingData, ModelOutput, Parameters, run
+from pydrology import ForcingData, ModelOutput, Parameters, run
 
 # Define model parameters
 params = Parameters(
@@ -98,18 +98,19 @@ custom_state = State(
 output = run(params, forcing, initial_state=custom_state)
 ```
 
-### Snow Module (CemaNeige)
+### Snow Module (GR6J-CemaNeige)
 
-For cold-climate catchments, enable the CemaNeige snow module to preprocess precipitation through snow accumulation and melt:
+For cold-climate catchments, use the coupled GR6J-CemaNeige model to preprocess precipitation through snow accumulation and melt:
 
 ```python
 import numpy as np
-from gr6j import Catchment, CemaNeige, ForcingData, Parameters, run
+from pydrology import Catchment, ForcingData
+from pydrology.models.gr6j_cemaneige import Parameters, run
 
-# Define model parameters with embedded snow module
+# Define model parameters (8 total: 6 GR6J + 2 CemaNeige)
 params = Parameters(
-    x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0,
-    snow=CemaNeige(ctg=0.97, kf=2.5)  # Snow parameters nested in Parameters
+    x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0,  # GR6J
+    ctg=0.97, kf=2.5,  # CemaNeige snow parameters
 )
 
 # Define catchment properties (required for snow)
@@ -120,7 +121,7 @@ forcing = ForcingData(
     time=np.arange(5, dtype='datetime64[D]') + np.datetime64('2020-01-01'),
     precip=np.array([10.0, 5.0, 0.0, 15.0, 8.0]),
     pet=np.array([3.0, 4.0, 5.0, 3.5, 4.0]),
-    temp=np.array([-5.0, 0.0, 5.0, -2.0, 8.0]),  # °C
+    temp=np.array([-5.0, 0.0, 5.0, -2.0, 8.0]),  # deg C
 )
 
 # Run with snow module
@@ -155,8 +156,8 @@ print(output.snow_layers.snow_pack.shape)  # (n_timesteps, 5)
 ### Single Timestep Execution
 
 ```python
-from gr6j import Parameters, State, step
-from gr6j.model.unit_hydrographs import compute_uh_ordinates
+from pydrology import Parameters, State, step
+from pydrology.processes.unit_hydrographs import compute_uh_ordinates
 
 params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5)
 state = State.initialize(params)
@@ -171,11 +172,11 @@ print(f"Streamflow: {fluxes['streamflow']:.2f} mm/day")
 
 ### Calibration
 
-Automatically optimize GR6J parameters using evolutionary algorithms:
+Automatically optimize parameters using evolutionary algorithms:
 
 ```python
 import numpy as np
-from gr6j import ForcingData, ObservedData, calibrate
+from pydrology import ForcingData, ObservedData, calibrate
 
 # Prepare forcing data (warmup + calibration period)
 forcing = ForcingData(
@@ -190,8 +191,9 @@ observed = ObservedData(
     streamflow=observed_streamflow,
 )
 
-# Calibrate to maximize NSE
+# Calibrate GR6J to maximize NSE
 result = calibrate(
+    model="gr6j",
     forcing=forcing,
     observed=observed,
     objectives=["nse"],
@@ -202,9 +204,22 @@ result = calibrate(
 
 print(f"Best NSE: {result.score['nse']:.3f}")
 print(f"Optimized X1: {result.parameters.x1:.1f}")
+
+# Calibrate GR6J-CemaNeige (8 parameters)
+result = calibrate(
+    model="gr6j_cemaneige",
+    forcing=forcing_with_temp,
+    observed=observed,
+    objectives=["nse"],
+    use_default_bounds=True,
+    catchment=catchment,
+    warmup=365,
+)
 ```
 
 ## Model Parameters
+
+### GR6J Parameters
 
 | Parameter | Description | Unit | Typical Range |
 |-----------|-------------|------|---------------|
@@ -220,9 +235,9 @@ print(f"Optimized X1: {result.parameters.x1:.1f}")
 | Parameter | Description | Unit | Typical Range |
 |-----------|-------------|------|---------------|
 | **CTG** | Thermal state weighting coefficient | - | [0, 1] |
-| **Kf** | Degree-day melt factor | mm/°C/day | [1, 10] |
+| **Kf** | Degree-day melt factor | mm/deg C/day | [1, 10] |
 
-Note: `mean_annual_solid_precip` is now specified via the `Catchment` class as it is a static catchment property rather than a calibration parameter.
+Note: `mean_annual_solid_precip` is specified via the `Catchment` class as it is a static catchment property rather than a calibration parameter.
 
 For detailed CemaNeige equations and algorithm, see [`docs/CEMANEIGE.md`](docs/CEMANEIGE.md).
 
@@ -232,10 +247,11 @@ For detailed CemaNeige equations and algorithm, see [`docs/CEMANEIGE.md`](docs/C
 - Snow module: [`docs/CEMANEIGE.md`](docs/CEMANEIGE.md)
 - User guide: [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md)
 - Input validation: [`docs/FORCING_DATA_CONTRACT.md`](docs/FORCING_DATA_CONTRACT.md)
+- Model interface: [`docs/MODEL_CONTRACT.md`](docs/MODEL_CONTRACT.md)
 - Calibration guide: [`docs/USER_GUIDE.md#calibration`](docs/USER_GUIDE.md#calibration)
 
 ## References
 
-- Pushpalatha, R., Perrin, C., Le Moine, N., Mathevet, T. and Andréassian, V. (2011). **A downward structural sensitivity analysis of hydrological models to improve low-flow simulation.** *Journal of Hydrology*, 411(1-2), 66-76. [doi:10.1016/j.jhydrol.2011.09.034](https://doi.org/10.1016/j.jhydrol.2011.09.034)
+- Pushpalatha, R., Perrin, C., Le Moine, N., Mathevet, T. and Andreassian, V. (2011). **A downward structural sensitivity analysis of hydrological models to improve low-flow simulation.** *Journal of Hydrology*, 411(1-2), 66-76. [doi:10.1016/j.jhydrol.2011.09.034](https://doi.org/10.1016/j.jhydrol.2011.09.034)
 
-- Valéry, A., Andréassian, V., & Perrin, C. (2014). **'As simple as possible but not simpler': What is useful in a temperature-based snow-accounting routine?** Part 1 – Comparison of six snow accounting routines on 380 catchments. *Journal of Hydrology*, 517, 1166-1175. [doi:10.1016/j.jhydrol.2014.04.059](https://doi.org/10.1016/j.jhydrol.2014.04.059)
+- Valery, A., Andreassian, V., & Perrin, C. (2014). **'As simple as possible but not simpler': What is useful in a temperature-based snow-accounting routine?** Part 1 - Comparison of six snow accounting routines on 380 catchments. *Journal of Hydrology*, 517, 1166-1175. [doi:10.1016/j.jhydrol.2014.04.059](https://doi.org/10.1016/j.jhydrol.2014.04.059)

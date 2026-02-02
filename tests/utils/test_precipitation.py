@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from gr6j.utils.precipitation import (
+from pydrology.utils.precipitation import (
     compute_mean_annual_solid_precip,
     compute_solid_fraction,
     compute_solid_precip,

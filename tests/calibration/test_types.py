@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from gr6j import Parameters
-from gr6j.calibration.types import ObservedData, Solution
+from pydrology import Parameters
+from pydrology.calibration.types import ObservedData, Solution
 
 
 class TestObservedData:
@@ -74,10 +74,11 @@ class TestSolution:
     """Tests for Solution dataclass."""
 
     def test_creation(self) -> None:
-        """Solution should be creatable with parameters and score."""
+        """Solution should be creatable with model, parameters, and score."""
         params = Parameters(x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0)
         score = {"nse": 0.85, "kge": 0.78}
-        sol = Solution(parameters=params, score=score)
+        sol = Solution(model="gr6j", parameters=params, score=score)
+        assert sol.model == "gr6j"
         assert sol.parameters.x1 == 350.0
         assert sol.score["nse"] == 0.85
 
@@ -85,6 +86,6 @@ class TestSolution:
         """Solution should be immutable (frozen dataclass)."""
         params = Parameters(x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0)
         score = {"nse": 0.85}
-        sol = Solution(parameters=params, score=score)
+        sol = Solution(model="gr6j", parameters=params, score=score)
         with pytest.raises(AttributeError, match="cannot assign"):
             sol.score = {"nse": 0.90}
