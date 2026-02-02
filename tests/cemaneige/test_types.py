@@ -4,6 +4,7 @@ Tests cover validation, immutability, and initialization
 for the core data structures used by the CemaNeige snow model.
 """
 
+import numpy as np
 import pytest
 
 from gr6j.cemaneige.types import CemaNeige, CemaNeigeMultiLayerState, CemaNeigeSingleLayerState
@@ -176,3 +177,74 @@ class TestCemaNeigeMultiLayerState:
         state = CemaNeigeMultiLayerState.initialize(n_layers=1, mean_annual_solid_precip=150.0)
 
         assert len(state) == 1
+
+
+class TestCemaNeigeSingleLayerStateArrayProtocol:
+    """Tests for CemaNeigeSingleLayerState array conversion."""
+
+    def test_state_to_array_shape(self) -> None:
+        """__array__ returns array of length 4."""
+        state = CemaNeigeSingleLayerState(g=50, etg=-2, gthreshold=135, glocalmax=135)
+        arr = np.asarray(state)
+        assert arr.shape == (4,)
+
+    def test_state_to_array_values(self) -> None:
+        """__array__ places values in correct order."""
+        state = CemaNeigeSingleLayerState(g=50, etg=-2, gthreshold=135, glocalmax=140)
+        arr = np.asarray(state)
+
+        assert arr[0] == 50.0
+        assert arr[1] == -2.0
+        assert arr[2] == 135.0
+        assert arr[3] == 140.0
+
+    def test_state_roundtrip(self) -> None:
+        """State can be reconstructed from array."""
+        original = CemaNeigeSingleLayerState(g=50, etg=-2, gthreshold=135, glocalmax=140)
+        arr = np.asarray(original)
+        restored = CemaNeigeSingleLayerState.from_array(arr)
+
+        assert restored.g == original.g
+        assert restored.etg == original.etg
+        assert restored.gthreshold == original.gthreshold
+        assert restored.glocalmax == original.glocalmax
+
+
+class TestCemaNeigeMultiLayerStateArrayProtocol:
+    """Tests for CemaNeigeMultiLayerState array conversion."""
+
+    def test_state_to_array_shape(self) -> None:
+        """__array__ returns 2D array with shape (n_layers, 4)."""
+        state = CemaNeigeMultiLayerState.initialize(n_layers=5, mean_annual_solid_precip=150)
+        arr = np.asarray(state)
+        assert arr.shape == (5, 4)
+
+    def test_state_to_array_values(self) -> None:
+        """__array__ places layer values in correct positions."""
+        layers = [
+            CemaNeigeSingleLayerState(g=10, etg=-1, gthreshold=100, glocalmax=100),
+            CemaNeigeSingleLayerState(g=20, etg=-2, gthreshold=100, glocalmax=110),
+        ]
+        state = CemaNeigeMultiLayerState(layer_states=layers)
+        arr = np.asarray(state)
+
+        assert arr[0, 0] == 10.0
+        assert arr[0, 1] == -1.0
+        assert arr[1, 0] == 20.0
+        assert arr[1, 1] == -2.0
+
+    def test_state_roundtrip(self) -> None:
+        """Multi-layer state can be reconstructed from array."""
+        layers = [
+            CemaNeigeSingleLayerState(g=10, etg=-1, gthreshold=100, glocalmax=100),
+            CemaNeigeSingleLayerState(g=20, etg=-2, gthreshold=150, glocalmax=160),
+        ]
+        original = CemaNeigeMultiLayerState(layer_states=layers)
+        arr = np.asarray(original)
+        restored = CemaNeigeMultiLayerState.from_array(arr)
+
+        assert len(restored) == 2
+        assert restored[0].g == 10.0
+        assert restored[0].etg == -1.0
+        assert restored[1].g == 20.0
+        assert restored[1].gthreshold == 150.0

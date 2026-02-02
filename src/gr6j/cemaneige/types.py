@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
 
 @dataclass(frozen=True)
 class CemaNeige:
@@ -82,6 +84,26 @@ class CemaNeigeSingleLayerState:
             glocalmax=gthreshold,
         )
 
+    def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:
+        """Convert state to a 1D array for Numba.
+
+        Layout: [g, etg, gthreshold, glocalmax] (4 elements)
+        """
+        arr = np.array([self.g, self.etg, self.gthreshold, self.glocalmax], dtype=np.float64)
+        if dtype is not None:
+            arr = arr.astype(dtype)
+        return arr
+
+    @classmethod
+    def from_array(cls, arr: np.ndarray) -> CemaNeigeSingleLayerState:
+        """Reconstruct state from array."""
+        return cls(
+            g=float(arr[0]),
+            etg=float(arr[1]),
+            gthreshold=float(arr[2]),
+            glocalmax=float(arr[3]),
+        )
+
 
 @dataclass
 class CemaNeigeMultiLayerState:
@@ -126,3 +148,33 @@ class CemaNeigeMultiLayerState:
     def __getitem__(self, index: int) -> CemaNeigeSingleLayerState:
         """Get a specific layer state by index."""
         return self.layer_states[index]
+
+    def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:
+        """Convert multi-layer state to a 2D array for Numba.
+
+        Shape: (n_layers, 4) where columns are [g, etg, gthreshold, glocalmax]
+        """
+        n_layers = len(self.layer_states)
+        arr = np.empty((n_layers, 4), dtype=np.float64)
+        for i, layer in enumerate(self.layer_states):
+            arr[i, 0] = layer.g
+            arr[i, 1] = layer.etg
+            arr[i, 2] = layer.gthreshold
+            arr[i, 3] = layer.glocalmax
+        if dtype is not None:
+            arr = arr.astype(dtype)
+        return arr
+
+    @classmethod
+    def from_array(cls, arr: np.ndarray) -> CemaNeigeMultiLayerState:
+        """Reconstruct multi-layer state from 2D array."""
+        layer_states = [
+            CemaNeigeSingleLayerState(
+                g=float(arr[i, 0]),
+                etg=float(arr[i, 1]),
+                gthreshold=float(arr[i, 2]),
+                glocalmax=float(arr[i, 3]),
+            )
+            for i in range(arr.shape[0])
+        ]
+        return cls(layer_states=layer_states)

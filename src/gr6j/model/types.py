@@ -51,6 +51,29 @@ class Parameters:
         """Return True if snow module is enabled."""
         return self.snow is not None
 
+    def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:
+        """Convert parameters to a 1D array for Numba.
+
+        Layout: [x1, x2, x3, x4, x5, x6] (6 elements)
+        """
+        arr = np.array([self.x1, self.x2, self.x3, self.x4, self.x5, self.x6], dtype=np.float64)
+        if dtype is not None:
+            arr = arr.astype(dtype)
+        return arr
+
+    @classmethod
+    def from_array(cls, arr: np.ndarray, snow: CemaNeige | None = None) -> Parameters:
+        """Reconstruct Parameters from array."""
+        return cls(
+            x1=float(arr[0]),
+            x2=float(arr[1]),
+            x3=float(arr[2]),
+            x4=float(arr[3]),
+            x5=float(arr[4]),
+            x6=float(arr[5]),
+            snow=snow,
+        )
+
 
 @dataclass
 class State:
@@ -95,4 +118,31 @@ class State:
             exponential_store=0.0,
             uh1_states=np.zeros(NH),
             uh2_states=np.zeros(2 * NH),
+        )
+
+    def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:
+        """Convert state to a 1D array for Numba.
+
+        Layout: [production_store, routing_store, exponential_store, uh1_states[0:20], uh2_states[0:40]]
+        Total: 63 elements
+        """
+        arr = np.empty(63, dtype=np.float64)
+        arr[0] = self.production_store
+        arr[1] = self.routing_store
+        arr[2] = self.exponential_store
+        arr[3:23] = self.uh1_states
+        arr[23:63] = self.uh2_states
+        if dtype is not None:
+            arr = arr.astype(dtype)
+        return arr
+
+    @classmethod
+    def from_array(cls, arr: np.ndarray) -> State:
+        """Reconstruct State from array."""
+        return cls(
+            production_store=float(arr[0]),
+            routing_store=float(arr[1]),
+            exponential_store=float(arr[2]),
+            uh1_states=arr[3:23].copy(),
+            uh2_states=arr[23:63].copy(),
         )

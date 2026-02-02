@@ -7,7 +7,13 @@ This module provides the main entry points for running the CemaNeige snow model:
 
 from __future__ import annotations
 
+# ruff: noqa: I001
+# Import order matters: _compat must patch numpy before numba import
+import gr6j._compat  # noqa: F401
+import math
+
 import numpy as np
+from numba import njit
 
 from .layers import extrapolate_precipitation, extrapolate_temperature
 from .processes import (
@@ -19,6 +25,143 @@ from .processes import (
     update_thermal_state,
 )
 from .types import CemaNeige, CemaNeigeMultiLayerState, CemaNeigeSingleLayerState
+
+# Constants inlined for Numba compatibility (from .constants)
+_GTHRESHOLD_FACTOR: float = 0.9
+_GRAD_T_DEFAULT: float = 0.6
+_GRAD_P_DEFAULT: float = 0.00041
+_ELEV_CAP_PRECIP: float = 4000.0
+
+
+@njit(cache=True)
+def _cemaneige_step_numba(
+    state_arr: np.ndarray,  # shape (4,) - [g, etg, gthreshold, glocalmax]
+    ctg: float,
+    kf: float,
+    precip: float,
+    temp: float,
+    out_state: np.ndarray,  # shape (4,) - output state written here
+    out_fluxes: np.ndarray,  # shape (11,) - output fluxes written here
+) -> None:
+    """Execute one timestep of CemaNeige using arrays (Numba-optimized).
+
+    State layout: [g, etg, gthreshold, glocalmax]
+    Flux output layout: [pliq, psol, snow_pack, thermal_state, gratio,
+                         pot_melt, melt, pliq_and_melt, temp, gthreshold, glocalmax]
+    """
+    # Unpack state
+    g = state_arr[0]
+    etg = state_arr[1]
+    gthreshold = state_arr[2]
+    glocalmax = state_arr[3]
+
+    # 1. Compute solid fraction
+    solid_fraction = compute_solid_fraction(temp)
+
+    # 2. Partition precipitation
+    pliq, psol = partition_precipitation(precip, solid_fraction)
+
+    # 3. Accumulate snow
+    g = g + psol
+
+    # 4. Update thermal state
+    etg = update_thermal_state(etg, temp, ctg)
+
+    # 5. Compute potential melt
+    pot_melt = compute_potential_melt(etg, temp, kf, g)
+
+    # 6. Compute gratio before melt
+    gratio_for_melt = compute_gratio(g, gthreshold)
+
+    # 7. Compute actual melt
+    melt = compute_actual_melt(pot_melt, gratio_for_melt)
+
+    # 8. Update snow pack
+    g = g - melt
+
+    # 9. Compute output gratio (after melt)
+    gratio_output = compute_gratio(g, gthreshold)
+
+    # 10. Compute total liquid output
+    pliq_and_melt = pliq + melt
+
+    # Write output state
+    out_state[0] = g
+    out_state[1] = etg
+    out_state[2] = gthreshold
+    out_state[3] = glocalmax
+
+    # Write output fluxes
+    out_fluxes[0] = pliq  # snow_pliq
+    out_fluxes[1] = psol  # snow_psol
+    out_fluxes[2] = g  # snow_pack
+    out_fluxes[3] = etg  # snow_thermal_state
+    out_fluxes[4] = gratio_output  # snow_gratio
+    out_fluxes[5] = pot_melt  # snow_pot_melt
+    out_fluxes[6] = melt  # snow_melt
+    out_fluxes[7] = pliq_and_melt  # snow_pliq_and_melt
+    out_fluxes[8] = temp  # snow_temp
+    out_fluxes[9] = gthreshold  # snow_gthreshold
+    out_fluxes[10] = glocalmax  # snow_glocalmax
+
+
+@njit(cache=True)
+def _cemaneige_multi_layer_step_numba(
+    layer_states: np.ndarray,  # shape (n_layers, 4)
+    ctg: float,
+    kf: float,
+    precip: float,
+    temp: float,
+    layer_elevations: np.ndarray,  # shape (n_layers,)
+    layer_fractions: np.ndarray,  # shape (n_layers,)
+    input_elevation: float,
+    temp_gradient: float,
+    precip_gradient: float,
+    out_layer_states: np.ndarray,  # shape (n_layers, 4)
+    out_aggregated_fluxes: np.ndarray,  # shape (11,)
+    out_per_layer_fluxes: np.ndarray,  # shape (n_layers, 11)
+) -> None:
+    """Execute one timestep of multi-layer CemaNeige using arrays (Numba-optimized).
+
+    Extrapolates temp/precip to each layer, runs CemaNeige, aggregates results.
+    """
+    n_layers = layer_states.shape[0]
+    layer_state = np.zeros(4)
+    out_state = np.zeros(4)
+    out_fluxes = np.zeros(11)
+
+    # Initialize aggregated fluxes to zero
+    for i in range(11):
+        out_aggregated_fluxes[i] = 0.0
+
+    for i in range(n_layers):
+        # Copy layer state
+        for j in range(4):
+            layer_state[j] = layer_states[i, j]
+
+        # Extrapolate temperature (using inline formula)
+        layer_temp = temp - temp_gradient * (layer_elevations[i] - input_elevation) / 100.0
+
+        # Extrapolate precipitation (using inline formula)
+        effective_input_elev = min(input_elevation, _ELEV_CAP_PRECIP)
+        effective_layer_elev = min(layer_elevations[i], _ELEV_CAP_PRECIP)
+        layer_precip = precip * math.exp(precip_gradient * (effective_layer_elev - effective_input_elev))
+
+        # Run single-layer step
+        _cemaneige_step_numba(layer_state, ctg, kf, layer_precip, layer_temp, out_state, out_fluxes)
+
+        # Copy output state to out_layer_states
+        for j in range(4):
+            out_layer_states[i, j] = out_state[j]
+
+        # Copy per-layer fluxes
+        for j in range(11):
+            out_per_layer_fluxes[i, j] = out_fluxes[j]
+
+        # Aggregate fluxes (area-weighted)
+        fraction = layer_fractions[i]
+        for j in range(11):
+            out_aggregated_fluxes[j] += out_fluxes[j] * fraction
 
 
 def cemaneige_step(

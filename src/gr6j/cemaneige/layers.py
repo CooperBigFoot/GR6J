@@ -4,7 +4,13 @@ Functions to derive layer properties from hypsometric curves and extrapolate
 temperature/precipitation across elevation bands.
 """
 
+# ruff: noqa: I001
+# Import order matters: _compat must patch numpy before numba import
+import math
+
+import gr6j._compat  # noqa: F401
 import numpy as np
+from numba import njit
 
 from .constants import ELEV_CAP_PRECIP, GRAD_P_DEFAULT, GRAD_T_DEFAULT
 
@@ -44,6 +50,7 @@ def derive_layers(hypsometric_curve: np.ndarray, n_layers: int) -> tuple[np.ndar
     return layer_elevations, layer_fractions
 
 
+@njit(cache=True)
 def extrapolate_temperature(
     input_temp: float,
     input_elevation: float,
@@ -67,6 +74,7 @@ def extrapolate_temperature(
     return input_temp - gradient * (layer_elevation - input_elevation) / 100.0
 
 
+@njit(cache=True)
 def extrapolate_precipitation(
     input_precip: float,
     input_elevation: float,
@@ -94,4 +102,4 @@ def extrapolate_precipitation(
     effective_input_elev = min(input_elevation, elev_cap)
     effective_layer_elev = min(layer_elevation, elev_cap)
 
-    return input_precip * np.exp(gradient * (effective_layer_elev - effective_input_elev))
+    return input_precip * math.exp(gradient * (effective_layer_elev - effective_input_elev))
