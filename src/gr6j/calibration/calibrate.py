@@ -141,6 +141,7 @@ def calibrate(
     seed: int | None = None,
     progress: bool = True,
     callback: Callable | None = None,
+    n_workers: int = 1,
 ) -> Solution | list[Solution]:
     """Calibrate GR6J parameters using evolutionary optimization.
 
@@ -167,6 +168,8 @@ def calibrate(
         callback: Optional callback for monitoring. Only used when progress=False.
             For GA, receives (GAResult, gen); for NSGA-II, receives (NSGA2Result, gen).
             Return True to stop early.
+        n_workers: Number of parallel workers for evaluation. Use 1 for sequential
+            execution (default), -1 for all CPU cores, or any positive integer.
 
     Returns:
         Single-objective: Solution with best parameters and score.
@@ -261,6 +264,7 @@ def calibrate(
                     n_generations=generations,
                     seed=seed,
                     callback=tracker.ga_callback,
+                    n_workers=n_workers,
                 )
                 tracker.finalize_ga(result)
         else:
@@ -273,6 +277,7 @@ def calibrate(
                 n_generations=generations,
                 seed=seed,
                 callback=callback,
+                n_workers=n_workers,
             )
         best_x, best_fitness = result.best
         best_params = _array_to_parameters(best_x, snow)
@@ -298,6 +303,7 @@ def calibrate(
                     n_generations=generations,
                     seed=seed,
                     callback=tracker.nsga2_callback,
+                    n_workers=n_workers,
                 )
                 tracker.finalize_nsga2(result)
         else:
@@ -310,6 +316,7 @@ def calibrate(
                 n_generations=generations,
                 seed=seed,
                 callback=callback,
+                n_workers=n_workers,
             )
 
         # Convert Pareto front to Solutions
