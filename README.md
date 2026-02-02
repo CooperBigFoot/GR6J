@@ -157,7 +157,7 @@ print(output.snow_layers.snow_pack.shape)  # (n_timesteps, 5)
 
 ```python
 from pydrology import Parameters, State, step
-from pydrology.processes.unit_hydrographs import compute_uh_ordinates
+from pydrology.models.gr6j.unit_hydrographs import compute_uh_ordinates
 
 params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5)
 state = State.initialize(params)
