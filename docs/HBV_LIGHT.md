@@ -140,14 +140,116 @@ HBV-light uses 14 parameters organized by routine:
 
 ## State Variables
 
-| Variable | Description | Unit | Initial Range |
-|----------|-------------|------|---------------|
-| `SP` | Snow pack (solid water equivalent) | mm | [0, ~500] |
-| `LW` | Liquid water retained in snow pack | mm | [0, CWH × SP] |
-| `SM` | Soil moisture content | mm | [0, FC] |
-| `SUZ` | Upper zone storage (fast response) | mm | [0, ~100] |
-| `SLZ` | Lower zone storage (slow response) | mm | [0, ~100] |
-| `QBuf` | Routing buffer (triangular UH convolution) | mm | Array of length ceil(MAXBAS) |
+| Variable | Description | Unit | Initial Range | Per-Zone |
+|----------|-------------|------|---------------|----------|
+| `SP` | Snow pack (solid water equivalent) | mm | [0, ~500] | Yes |
+| `LW` | Liquid water retained in snow pack | mm | [0, CWH × SP] | Yes |
+| `SM` | Soil moisture content | mm | [0, FC] | Yes |
+| `SUZ` | Upper zone storage (fast response) | mm | [0, ~100] | No |
+| `SLZ` | Lower zone storage (slow response) | mm | [0, ~100] | No |
+| `QBuf` | Routing buffer (triangular UH convolution) | mm | Array of length ceil(MAXBAS) | No |
+
+**Note:** When using elevation bands (`n_layers > 1`), SP, LW, and SM are tracked independently for each zone. SUZ, SLZ, and QBuf remain lumped across all zones.
+
+---
+
+## Elevation Bands
+
+HBV-light supports **semi-distributed elevation bands** to account for temperature and precipitation gradients with altitude. This is particularly important in mountainous catchments where snow accumulation and melt timing vary significantly with elevation.
+
+### Key Characteristics
+
+| Property | Value |
+|----------|-------|
+| Configuration | Optional (default: single zone) |
+| Recommended layers | 5 (optimal balance of detail vs complexity) |
+| Per-zone processes | Snow routine, Soil routine |
+| Lumped processes | Response routine (upper/lower zones), Routing |
+| Aggregation method | Area-weighted averaging of recharge |
+
+### Semi-Distributed Mode
+
+In **semi-distributed mode**, the catchment is divided into elevation zones:
+
+1. Each zone runs independent snow and soil routines
+2. Temperature and precipitation are extrapolated to each zone's representative elevation
+3. Recharge from all zones is aggregated (area-weighted) before entering the response routine
+4. The groundwater stores (SUZ, SLZ) and routing remain lumped
+
+### Layer Derivation
+
+Layers are derived from the catchment's **hypsometric curve** - a 101-point cumulative elevation distribution where index `i` contains the elevation at percentile `i%`.
+
+For N layers, each band represents 1/N of the catchment area. The representative elevation for each layer is the midpoint of the elevation range spanned by that layer's percentile bounds.
+
+### Temperature Extrapolation
+
+Temperature decreases linearly with elevation:
+
+```
+T_layer = T_input - (GradT / 100) × (Z_layer - Z_input)
+```
+
+Where:
+- `GradT` = temperature lapse rate [°C/100m] (default: **0.6**)
+- `Z_layer` = representative elevation of the layer [m]
+- `Z_input` = elevation of forcing data [m]
+
+### Precipitation Extrapolation
+
+Precipitation increases exponentially with elevation (orographic effect):
+
+```
+P_layer = P_input × exp(GradP × (Z_layer_eff - Z_input_eff))
+```
+
+Where:
+- `GradP` = precipitation gradient [m⁻¹] (default: **0.00041**)
+- Both elevations are capped at 4000m to prevent unrealistic extrapolation
+
+**Note:** This is the same exponential formula used by CemaNeige, enabling code sharing between models.
+
+### Usage Example
+
+```python
+from pydrology import Catchment, ForcingData, get_model
+from pydrology.utils import analyze_dem
+
+# Analyze DEM to get hypsometric curve
+dem = analyze_dem("data/basin_dem.tif")
+
+# Create catchment with elevation band configuration
+catchment = Catchment(
+    mean_annual_solid_precip=150.0,
+    n_layers=5,                           # 5 equal-area bands
+    hypsometric_curve=dem.hypsometric_curve,
+    input_elevation=dem.median_elevation,  # Station elevation
+    # Optional: custom gradients (defaults used if omitted)
+    # temp_gradient=0.6,                  # °C/100m
+    # precip_gradient=0.00041,            # m⁻¹
+)
+
+# Get model and run
+model = get_model("hbv_light")
+params = model.Parameters(
+    tt=0.0, cfmax=3.0, sfcf=1.0, cwh=0.1, cfr=0.05,
+    fc=250.0, lp=0.9, beta=2.0,
+    k0=0.4, k1=0.1, k2=0.01, perc=1.0, uzl=20.0,
+    maxbas=2.5,
+)
+
+result = model.run(params, forcing, catchment=catchment)
+
+# Access aggregated outputs
+print(result.streamflow)           # Shape: (n_timesteps,)
+print(result.fluxes.snow_pack)     # Aggregated snow pack
+
+# Access per-zone outputs
+if result.zone_outputs is not None:
+    print(result.zone_outputs.snow_pack)       # Shape: (n_timesteps, 5)
+    print(result.zone_outputs.zone_temp)       # Shape: (n_timesteps, 5)
+    print(result.zone_outputs.zone_elevations) # Shape: (5,)
+```
 
 ---
 
@@ -441,6 +543,8 @@ for solution in result.pareto_front:
 | **Inter-catchment Flow** | Not represented | Explicit gain/loss term |
 | **ET Reduction** | Linear below LP×FC | Based on production store level |
 | **Typical Applications** | Nordic/cold regions | Temperate/Mediterranean |
+| **Elevation Bands** | Built-in semi-distributed support | Via CemaNeige coupling |
+| **Per-Zone Processing** | Snow + Soil routines | Snow routine only (CemaNeige) |
 
 ### When to Choose Each Model
 

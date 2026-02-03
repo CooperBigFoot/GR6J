@@ -10,7 +10,7 @@ This module provides dataclasses for organizing and accessing model outputs:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 import numpy as np
 import pandas as pd
@@ -18,6 +18,9 @@ import pandas as pd
 # Re-export from model-specific modules for backward compatibility
 from pydrology.models.cemaneige.outputs import SnowLayerOutputs, SnowOutput
 from pydrology.models.gr6j.outputs import GR6JFluxes, GR6JOutput
+
+if TYPE_CHECKING:
+    from pydrology.models.hbv_light.outputs import HBVLightZoneOutputs
 
 __all__ = ["GR6JFluxes", "GR6JOutput", "ModelOutput", "SnowLayerOutputs", "SnowOutput"]
 
@@ -40,12 +43,14 @@ class ModelOutput(Generic[F]):
         fluxes: Model flux outputs (type depends on the model).
         snow: Optional CemaNeige outputs (present if snow module was enabled).
         snow_layers: Optional per-layer snow outputs for multi-layer simulations.
+        zone_outputs: Optional per-zone outputs for multi-zone HBV-light simulations.
     """
 
     time: np.ndarray
     fluxes: F
     snow: SnowOutput | None = None
     snow_layers: SnowLayerOutputs | None = None
+    zone_outputs: HBVLightZoneOutputs | None = None
 
     @property
     def streamflow(self) -> np.ndarray:

@@ -18,12 +18,12 @@ import math
 import numpy as np
 from numba import njit
 
-from pydrology.cemaneige.constants import (
+from pydrology.utils.elevation import (
     ELEV_CAP_PRECIP,
     GRAD_P_DEFAULT,
     GRAD_T_DEFAULT,
+    derive_layers,
 )
-from pydrology.cemaneige.layers import derive_layers
 from pydrology.cemaneige.processes import (
     compute_actual_melt,
     compute_gratio,
