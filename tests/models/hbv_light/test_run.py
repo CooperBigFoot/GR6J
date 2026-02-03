@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pydrology import ForcingData, ModelOutput
+from pydrology import Catchment, ForcingData, ModelOutput
 from pydrology.models.hbv_light.outputs import HBVLightFluxes
 from pydrology.models.hbv_light.routing import compute_triangular_weights
 from pydrology.models.hbv_light.run import run, step
@@ -313,3 +313,200 @@ class TestOutputFiniteness:
 
         for key, values in result.fluxes.to_dict().items():
             assert np.all(np.isfinite(values)), f"Field '{key}' has NaN or inf"
+
+
+class TestRunMultiZone:
+    """Tests for multi-zone HBV-light execution."""
+
+    @pytest.fixture
+    def multi_zone_catchment(self) -> Catchment:
+        """5-zone catchment with hypsometric curve."""
+        return Catchment(
+            mean_annual_solid_precip=150.0,
+            n_layers=5,
+            hypsometric_curve=np.linspace(200.0, 2000.0, 101),
+            input_elevation=500.0,
+        )
+
+    @pytest.fixture
+    def forcing_with_snow(self) -> ForcingData:
+        """10-day forcing with varied temperatures for snow testing."""
+        return ForcingData(
+            time=pd.date_range("2020-01-01", periods=10, freq="D").to_numpy(),
+            precip=np.array([10.0, 15.0, 5.0, 0.0, 20.0, 10.0, 0.0, 5.0, 15.0, 8.0]),
+            pet=np.array([2.0, 3.0, 4.0, 5.0, 2.0, 3.0, 4.0, 3.0, 2.0, 3.0]),
+            temp=np.array([-5.0, -3.0, 0.0, 5.0, -8.0, -2.0, 3.0, 7.0, -1.0, 10.0]),
+        )
+
+    def test_run_multi_zone_output_length(
+        self,
+        typical_params: Parameters,
+        multi_zone_catchment: Catchment,
+        forcing_with_snow: ForcingData,
+    ) -> None:
+        """run() with multi-zone catchment produces output of correct length."""
+        result = run(typical_params, forcing_with_snow, catchment=multi_zone_catchment)
+
+        assert len(result) == 10
+
+    def test_run_multi_zone_produces_zone_outputs(
+        self,
+        typical_params: Parameters,
+        multi_zone_catchment: Catchment,
+        forcing_with_snow: ForcingData,
+    ) -> None:
+        """run() with multi-zone catchment populates zone_outputs."""
+        result = run(typical_params, forcing_with_snow, catchment=multi_zone_catchment)
+
+        assert result.zone_outputs is not None
+        assert result.zone_outputs.n_zones == 5
+
+    def test_higher_zones_colder_temperatures(
+        self,
+        typical_params: Parameters,
+        multi_zone_catchment: Catchment,
+        forcing_with_snow: ForcingData,
+    ) -> None:
+        """Higher elevation zones receive colder extrapolated temperatures."""
+        result = run(typical_params, forcing_with_snow, catchment=multi_zone_catchment)
+
+        assert result.zone_outputs is not None
+        zone_temps = result.zone_outputs.zone_temp  # shape (10, 5)
+
+        # At each timestep, zone temperatures should decrease with zone index
+        for t in range(10):
+            for z in range(4):
+                assert zone_temps[t, z] > zone_temps[t, z + 1], \
+                    f"Zone {z} should be warmer than zone {z+1} at timestep {t}"
+
+    def test_single_zone_no_zone_outputs(
+        self,
+        typical_params: Parameters,
+        simple_forcing: ForcingData,
+    ) -> None:
+        """Single-zone run produces no zone_outputs."""
+        result = run(typical_params, simple_forcing)
+
+        assert result.zone_outputs is None
+
+    def test_single_zone_backward_compatible(
+        self,
+        typical_params: Parameters,
+        simple_forcing: ForcingData,
+    ) -> None:
+        """Single-zone run with catchment produces same results as without."""
+        # Run without catchment
+        result_no_catchment = run(typical_params, simple_forcing)
+
+        # Run with single-zone catchment (no elevation info)
+        single_zone_catchment = Catchment(mean_annual_solid_precip=100.0, n_layers=1)
+        result_single_zone = run(typical_params, simple_forcing, catchment=single_zone_catchment)
+
+        # Streamflow should be identical
+        np.testing.assert_array_almost_equal(
+            result_no_catchment.streamflow,
+            result_single_zone.streamflow,
+        )
+
+    def test_aggregation_is_area_weighted(
+        self,
+        typical_params: Parameters,
+        multi_zone_catchment: Catchment,
+        forcing_with_snow: ForcingData,
+    ) -> None:
+        """Aggregated outputs are area-weighted averages of zone outputs."""
+        result = run(typical_params, forcing_with_snow, catchment=multi_zone_catchment)
+
+        assert result.zone_outputs is not None
+
+        # For uniform fractions (1/n_zones=0.2), aggregated snow_pack should be
+        # mean of zone snow packs
+        zone_snow_packs = result.zone_outputs.snow_pack  # shape (10, 5)
+        expected_aggregated = np.mean(zone_snow_packs, axis=1)
+        np.testing.assert_array_almost_equal(
+            result.fluxes.snow_pack, expected_aggregated
+        )
+
+
+class TestZoneOutputs:
+    """Tests for per-zone output structure."""
+
+    @pytest.fixture
+    def multi_zone_catchment(self) -> Catchment:
+        """5-zone catchment."""
+        return Catchment(
+            mean_annual_solid_precip=150.0,
+            n_layers=5,
+            hypsometric_curve=np.linspace(200.0, 2000.0, 101),
+            input_elevation=500.0,
+        )
+
+    @pytest.fixture
+    def forcing_10_days(self) -> ForcingData:
+        """10-day forcing data."""
+        return ForcingData(
+            time=pd.date_range("2020-01-01", periods=10, freq="D").to_numpy(),
+            precip=np.full(10, 10.0),
+            pet=np.full(10, 3.0),
+            temp=np.full(10, 0.0),
+        )
+
+    def test_zone_outputs_shape(
+        self,
+        typical_params: Parameters,
+        multi_zone_catchment: Catchment,
+        forcing_10_days: ForcingData,
+    ) -> None:
+        """Zone output arrays have shape (n_timesteps, n_zones)."""
+        result = run(typical_params, forcing_10_days, catchment=multi_zone_catchment)
+
+        assert result.zone_outputs is not None
+        assert result.zone_outputs.snow_pack.shape == (10, 5)
+        assert result.zone_outputs.soil_moisture.shape == (10, 5)
+        assert result.zone_outputs.zone_temp.shape == (10, 5)
+        assert result.zone_outputs.zone_precip.shape == (10, 5)
+
+    def test_zone_elevations_monotonic(
+        self,
+        typical_params: Parameters,
+        multi_zone_catchment: Catchment,
+        forcing_10_days: ForcingData,
+    ) -> None:
+        """Zone elevations are monotonically increasing."""
+        result = run(typical_params, forcing_10_days, catchment=multi_zone_catchment)
+
+        assert result.zone_outputs is not None
+        elevations = result.zone_outputs.zone_elevations
+        for i in range(len(elevations) - 1):
+            assert elevations[i] < elevations[i + 1]
+
+    def test_zone_fractions_sum_to_one(
+        self,
+        typical_params: Parameters,
+        multi_zone_catchment: Catchment,
+        forcing_10_days: ForcingData,
+    ) -> None:
+        """Zone fractions sum to 1.0."""
+        result = run(typical_params, forcing_10_days, catchment=multi_zone_catchment)
+
+        assert result.zone_outputs is not None
+        assert sum(result.zone_outputs.zone_fractions) == pytest.approx(1.0)
+
+    def test_all_zone_values_finite(
+        self,
+        typical_params: Parameters,
+        multi_zone_catchment: Catchment,
+    ) -> None:
+        """All zone output values are finite."""
+        forcing = ForcingData(
+            time=pd.date_range("2020-01-01", periods=20, freq="D").to_numpy(),
+            precip=np.random.default_rng(42).uniform(0, 30, 20),
+            pet=np.random.default_rng(42).uniform(0, 8, 20),
+            temp=np.random.default_rng(42).uniform(-20, 30, 20),
+        )
+
+        result = run(typical_params, forcing, catchment=multi_zone_catchment)
+
+        assert result.zone_outputs is not None
+        for key, values in result.zone_outputs.to_dict().items():
+            assert np.all(np.isfinite(values)), f"Zone output '{key}' has non-finite values"
