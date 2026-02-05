@@ -287,6 +287,7 @@ Currently, all models in PyDrology support only daily resolution:
 | `gr6j` | daily |
 | `gr6j_cemaneige` | daily |
 | `hbv_light` | daily |
+| `gr2m` | monthly |
 
 If you pass forcing data with an unsupported resolution, the model will raise a `ValueError`.
 
@@ -473,6 +474,7 @@ PyDrology provides a model registry for dynamic model discovery and selection. T
 | `gr6j` | 6 | GR6J rainfall-runoff model |
 | `gr6j_cemaneige` | 8 | GR6J coupled with CemaNeige snow module |
 | `hbv_light` | 14 | HBV-light model with built-in snow routine |
+| `gr2m` | 2 | GR2M monthly rainfall-runoff model |
 
 ### Using the Registry
 
@@ -884,6 +886,91 @@ print(f"CFMAX: {result.parameters.cfmax:.2f} mm/°C/d")
 ```
 
 For detailed model equations and structure, see [HBV_LIGHT.md](HBV_LIGHT.md).
+
+---
+
+## GR2M Model
+
+PyDrology includes the GR2M model, a simple two-parameter monthly rainfall-runoff model developed by INRAE. With only 2 parameters and monthly timesteps, GR2M is ideal for data-scarce regions, long-term water balance studies, and preliminary catchment analysis.
+
+### Quick Start
+
+```python
+import numpy as np
+from pydrology import ForcingData, Resolution, get_model
+
+# Get the GR2M model
+model = get_model("gr2m")
+
+# Create monthly forcing data
+n_months = 24
+forcing = ForcingData(
+    time=np.array(['2020-01-01', '2020-02-01', '2020-03-01', '2020-04-01',
+                   '2020-05-01', '2020-06-01', '2020-07-01', '2020-08-01',
+                   '2020-09-01', '2020-10-01', '2020-11-01', '2020-12-01',
+                   '2021-01-01', '2021-02-01', '2021-03-01', '2021-04-01',
+                   '2021-05-01', '2021-06-01', '2021-07-01', '2021-08-01',
+                   '2021-09-01', '2021-10-01', '2021-11-01', '2021-12-01'],
+                  dtype='datetime64[D]'),
+    precip=np.random.uniform(20, 150, n_months),  # [mm/month]
+    pet=np.random.uniform(30, 120, n_months),     # [mm/month]
+    resolution=Resolution.monthly,
+)
+
+# Define GR2M parameters (only 2!)
+params = model.Parameters(
+    x1=400.0,   # Production store capacity [mm]
+    x2=0.9,     # Groundwater exchange coefficient [-]
+)
+
+# Run the model
+output = model.run(params, forcing)
+print(output.streamflow)  # Monthly streamflow [mm/month]
+```
+
+### GR2M Parameters
+
+| Parameter | Description | Unit | Typical Range |
+|-----------|-------------|------|---------------|
+| **x1** | Production store capacity | mm | [1, 2500] |
+| **x2** | Groundwater exchange coefficient | - | [0.2, 2.0] |
+
+**Physical Interpretation:**
+
+- **x1**: Controls maximum soil moisture storage. Larger values mean more water retention before generating runoff.
+- **x2**: Controls groundwater exchange. Values > 1 indicate water gains; values < 1 indicate losses.
+
+### When to Use GR2M vs Daily Models
+
+| Use GR2M when... | Use daily models (GR6J, HBV-light) when... |
+|------------------|-------------------------------------------|
+| Only monthly data is available | Daily data is available |
+| Long-term water balance studies | Event-scale analysis needed |
+| Data-scarce regions | Detailed process representation required |
+| Climate change impact assessments | Snow processes are important |
+| Preliminary catchment screening | Calibration to observed hydrographs |
+
+### Calibration Example
+
+```python
+from pydrology import ForcingData, ObservedData, Resolution, calibrate
+
+# Calibrate GR2M with default bounds
+result = calibrate(
+    model="gr2m",
+    forcing=monthly_forcing,
+    observed=observed,
+    objectives=["nse"],
+    use_default_bounds=True,
+    warmup=12,  # 12 months warmup
+)
+
+print(f"Best NSE: {result.score['nse']:.3f}")
+print(f"X1: {result.parameters.x1:.1f} mm")
+print(f"X2: {result.parameters.x2:.3f}")
+```
+
+For detailed model equations and structure, see [GR2M.md](GR2M.md).
 
 ---
 

@@ -203,6 +203,7 @@ The registry validates that all registered models export `SUPPORTED_RESOLUTIONS`
 | `gr6j` | daily |
 | `gr6j_cemaneige` | daily |
 | `hbv_light` | daily |
+| `gr2m` | `(Resolution.monthly,)` |
 
 ## Registration
 

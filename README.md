@@ -24,7 +24,7 @@ import numpy as np
 from pydrology import ForcingData, list_models, get_model
 
 # See available models
-print(list_models())  # ['gr6j', 'gr6j_cemaneige', 'hbv_light']
+print(list_models())  # ['gr2m', 'gr6j', 'gr6j_cemaneige', 'hbv_light']
 
 # Load a model
 gr6j = get_model("gr6j")
@@ -112,6 +112,7 @@ output = model.run(params, forcing, catchment)
 ## Documentation
 
 - [User Guide](docs/USER_GUIDE.md) — Custom states, multi-layer elevation bands, advanced usage
+- [GR2M Model](docs/GR2M.md) — Monthly model with 2 parameters
 - [GR6J Model](docs/GR6J.md) — Parameter details and equations
 - [HBV-light Model](docs/HBV_LIGHT.md) — Parameter details and structure
 

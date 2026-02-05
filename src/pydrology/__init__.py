@@ -6,6 +6,7 @@ Includes GR6J (Génie Rural à 6 paramètres Journalier) and optional CemaNeige 
 
 import pydrology.models.gr6j_cemaneige  # noqa: F401 - triggers auto-registration
 import pydrology.models.hbv_light  # noqa: F401 - triggers auto-registration
+import pydrology.models.gr2m  # noqa: F401 - triggers auto-registration
 from pydrology.calibration import ObservedData, Solution, calibrate, list_metrics
 from pydrology.cemaneige import (
     CemaNeige,
