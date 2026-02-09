@@ -9,6 +9,7 @@ use super::constants::ROUTING_BUFFER_SIZE;
 /// Q0 (surface flow) is threshold-activated when SUZ > UZL.
 /// Q1 (interflow) is always active.
 /// Returns (q0, q1).
+#[inline]
 pub fn upper_zone_outflows(suz: f64, k0: f64, k1: f64, uzl: f64) -> (f64, f64) {
     let q0 = if suz > uzl { k0 * (suz - uzl) } else { 0.0 };
     let q1 = k1 * suz;
@@ -18,22 +19,26 @@ pub fn upper_zone_outflows(suz: f64, k0: f64, k1: f64, uzl: f64) -> (f64, f64) {
 /// Compute percolation from upper to lower zone.
 ///
 /// Limited by available storage and maximum percolation rate.
+#[inline]
 pub fn compute_percolation(suz: f64, perc_max: f64) -> f64 {
     perc_max.min(suz.max(0.0))
 }
 
 /// Update upper zone storage.
+#[inline]
 pub fn update_upper_zone(suz: f64, recharge: f64, q0: f64, q1: f64, perc: f64) -> f64 {
     let new_suz = suz + recharge - q0 - q1 - perc;
     new_suz.max(0.0)
 }
 
 /// Compute baseflow from lower groundwater zone.
+#[inline]
 pub fn lower_zone_outflow(slz: f64, k2: f64) -> f64 {
     k2 * slz
 }
 
 /// Update lower zone storage.
+#[inline]
 pub fn update_lower_zone(slz: f64, perc: f64, q2: f64) -> f64 {
     let new_slz = slz + perc - q2;
     new_slz.max(0.0)
@@ -43,6 +48,7 @@ pub fn update_lower_zone(slz: f64, perc: f64, q2: f64) -> f64 {
 ///
 /// Uses analytical integration of the triangular function to compute
 /// weights that sum to 1.0. Supports fractional MAXBAS values.
+#[inline]
 pub fn compute_triangular_weights(maxbas: f64) -> Vec<f64> {
     let n = (maxbas.ceil() as usize).max(1);
     let mut weights = vec![0.0; n];
@@ -88,6 +94,7 @@ pub fn compute_triangular_weights(maxbas: f64) -> Vec<f64> {
 /// Convolve groundwater runoff with triangular unit hydrograph.
 ///
 /// Returns (new_buffer, qsim).
+#[inline]
 pub fn convolve_triangular(
     qgw: f64,
     buffer: &[f64; ROUTING_BUFFER_SIZE],

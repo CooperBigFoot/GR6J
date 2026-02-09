@@ -6,6 +6,7 @@ use super::constants::{MIN_SPEED, T_MELT, T_RAIN, T_SNOW};
 /// Compute fraction of precipitation falling as snow using USACE formula.
 ///
 /// Linear interpolation between T_SNOW (-1C) and T_RAIN (3C).
+#[inline]
 pub fn compute_solid_fraction(temp: f64) -> f64 {
     if temp <= T_SNOW {
         1.0
@@ -19,6 +20,7 @@ pub fn compute_solid_fraction(temp: f64) -> f64 {
 /// Split precipitation into liquid (rain) and solid (snow) components.
 ///
 /// Returns (pliq, psol).
+#[inline]
 pub fn partition_precipitation(precip: f64, solid_fraction: f64) -> (f64, f64) {
     let pliq = (1.0 - solid_fraction) * precip;
     let psol = solid_fraction * precip;
@@ -28,6 +30,7 @@ pub fn partition_precipitation(precip: f64, solid_fraction: f64) -> (f64, f64) {
 /// Update snow pack thermal state using exponential smoothing.
 ///
 /// The thermal state is capped at 0C (snow cannot be warmer than melting point).
+#[inline]
 pub fn update_thermal_state(etg: f64, temp: f64, ctg: f64) -> f64 {
     let new_etg = ctg * etg + (1.0 - ctg) * temp;
     new_etg.min(0.0)
@@ -37,6 +40,7 @@ pub fn update_thermal_state(etg: f64, temp: f64, ctg: f64) -> f64 {
 ///
 /// Melt only occurs when etg == 0 (snow at melting point) AND temp > T_MELT.
 /// Capped at available snow pack.
+#[inline]
 pub fn compute_potential_melt(etg: f64, temp: f64, kf: f64, snow_pack: f64) -> f64 {
     if etg == 0.0 && temp > T_MELT {
         (kf * temp).min(snow_pack)
@@ -50,6 +54,7 @@ pub fn compute_potential_melt(etg: f64, temp: f64, kf: f64, snow_pack: f64) -> f
 /// - 1.0 when snow_pack >= gthreshold
 /// - snow_pack / gthreshold when below
 /// - 0.0 if gthreshold is 0
+#[inline]
 pub fn compute_gratio(snow_pack: f64, gthreshold: f64) -> f64 {
     if gthreshold == 0.0 {
         0.0
@@ -63,6 +68,7 @@ pub fn compute_gratio(snow_pack: f64, gthreshold: f64) -> f64 {
 /// Compute actual snow melt modulated by snow cover fraction.
 ///
 /// Even with minimal cover, melt proceeds at MIN_SPEED (10%) of potential.
+#[inline]
 pub fn compute_actual_melt(potential_melt: f64, gratio: f64) -> f64 {
     ((1.0 - MIN_SPEED) * gratio + MIN_SPEED) * potential_melt
 }

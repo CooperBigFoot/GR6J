@@ -153,7 +153,7 @@ pub fn run(
     let uh_weights = routing::compute_triangular_weights(params.maxbas);
 
     // Allocate outputs
-    let mut outputs = FluxesTimeseries::with_capacity(n_timesteps);
+    let mut outputs = FluxesTimeseries::with_len(n_timesteps);
     let multi_zone = n_zones > 1;
     let mut zone_outputs = if multi_zone {
         let mut zo = ZoneOutputs::with_capacity(n_timesteps, n_zones);
@@ -170,6 +170,87 @@ pub fn run(
         let pe = pet[t];
         let te = temp[t];
 
+        // Single-zone fast path: skip accumulation overhead
+        if n_zones == 1 {
+            let (zone_temp, zone_precip) = if skip_extrapolation {
+                (te, p)
+            } else {
+                let ie = input_elevation.unwrap();
+                (
+                    elevation::extrapolate_temp(te, ie, zone_elevs[0], t_grad),
+                    elevation::extrapolate_precip_with_cap(p, ie, zone_elevs[0], p_grad, elevation::ELEV_CAP_PRECIP),
+                )
+            };
+
+            let sp = state.zone_states[0][0];
+            let lw = state.zone_states[0][1];
+            let sm = state.zone_states[0][2];
+
+            let (p_rain, p_snow) =
+                processes::partition_precipitation(zone_precip, zone_temp, params.tt, params.sfcf);
+            let melt = processes::compute_melt(zone_temp, params.tt, params.cfmax, sp);
+            let refreeze =
+                processes::compute_refreezing(zone_temp, params.tt, params.cfmax, params.cfr, lw);
+            let (new_sp, new_lw, snow_outflow) =
+                processes::update_snow_pack(sp, lw, p_snow, melt, refreeze, params.cwh);
+
+            let snow_input = p_rain + snow_outflow;
+
+            let recharge =
+                processes::compute_recharge(snow_input, sm, params.fc, params.beta);
+            let et_act = processes::compute_actual_et(pe, sm, params.fc, params.lp);
+            let new_sm =
+                processes::update_soil_moisture(sm, snow_input, recharge, et_act, params.fc);
+
+            state.zone_states[0] = [new_sp, new_lw, new_sm];
+
+            // Response routine
+            let (q0, q1) =
+                routing::upper_zone_outflows(state.upper_zone, params.k0, params.k1, params.uzl);
+            let perc = routing::compute_percolation(state.upper_zone, params.perc);
+            let new_suz = routing::update_upper_zone(state.upper_zone, recharge, q0, q1, perc);
+
+            let q2 = routing::lower_zone_outflow(state.lower_zone, params.k2);
+            let new_slz = routing::update_lower_zone(state.lower_zone, perc, q2);
+
+            let qgw = q0 + q1 + q2;
+
+            let (new_buffer, qsim) =
+                routing::convolve_triangular(qgw, &state.routing_buffer, &uh_weights);
+
+            state.upper_zone = new_suz;
+            state.lower_zone = new_slz;
+            state.routing_buffer = new_buffer;
+
+            unsafe {
+                outputs.write_unchecked(t, &Fluxes {
+                    precip: p,
+                    temp: te,
+                    pet: pe,
+                    precip_rain: p_rain,
+                    precip_snow: p_snow,
+                    snow_pack: new_sp,
+                    snow_melt: melt,
+                    liquid_water_in_snow: new_lw,
+                    snow_input,
+                    soil_moisture: new_sm,
+                    recharge,
+                    actual_et: et_act,
+                    upper_zone: new_suz,
+                    lower_zone: new_slz,
+                    q0,
+                    q1,
+                    q2,
+                    percolation: perc,
+                    qgw,
+                    streamflow: qsim,
+                });
+            }
+
+            continue;
+        }
+
+        // Multi-zone path
         // Aggregation accumulators
         let mut agg_p_rain = 0.0;
         let mut agg_p_snow = 0.0;
@@ -265,28 +346,30 @@ pub fn run(
         state.lower_zone = new_slz;
         state.routing_buffer = new_buffer;
 
-        outputs.push(&Fluxes {
-            precip: p,
-            temp: te,
-            pet: pe,
-            precip_rain: agg_p_rain,
-            precip_snow: agg_p_snow,
-            snow_pack: agg_sp,
-            snow_melt: agg_melt,
-            liquid_water_in_snow: agg_lw,
-            snow_input: agg_snow_input,
-            soil_moisture: agg_sm,
-            recharge: agg_recharge,
-            actual_et: agg_et_act,
-            upper_zone: new_suz,
-            lower_zone: new_slz,
-            q0,
-            q1,
-            q2,
-            percolation: perc,
-            qgw,
-            streamflow: qsim,
-        });
+        unsafe {
+            outputs.write_unchecked(t, &Fluxes {
+                precip: p,
+                temp: te,
+                pet: pe,
+                precip_rain: agg_p_rain,
+                precip_snow: agg_p_snow,
+                snow_pack: agg_sp,
+                snow_melt: agg_melt,
+                liquid_water_in_snow: agg_lw,
+                snow_input: agg_snow_input,
+                soil_moisture: agg_sm,
+                recharge: agg_recharge,
+                actual_et: agg_et_act,
+                upper_zone: new_suz,
+                lower_zone: new_slz,
+                q0,
+                q1,
+                q2,
+                percolation: perc,
+                qgw,
+                streamflow: qsim,
+            });
+        }
     }
 
     (outputs, zone_outputs)

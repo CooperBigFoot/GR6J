@@ -6,6 +6,7 @@
 /// Partition precipitation into rain and snow.
 ///
 /// Returns (p_rain, p_snow).
+#[inline]
 pub fn partition_precipitation(precip: f64, temp: f64, tt: f64, sfcf: f64) -> (f64, f64) {
     if temp > tt {
         (precip, 0.0)
@@ -17,6 +18,7 @@ pub fn partition_precipitation(precip: f64, temp: f64, tt: f64, sfcf: f64) -> (f
 /// Compute snowmelt using degree-day method.
 ///
 /// Melt is limited by available snow pack.
+#[inline]
 pub fn compute_melt(temp: f64, tt: f64, cfmax: f64, snow_pack: f64) -> f64 {
     if temp > tt {
         let melt = cfmax * (temp - tt);
@@ -29,6 +31,7 @@ pub fn compute_melt(temp: f64, tt: f64, cfmax: f64, snow_pack: f64) -> f64 {
 /// Compute refreezing of liquid water in snowpack.
 ///
 /// Refreezing is limited by available liquid water.
+#[inline]
 pub fn compute_refreezing(temp: f64, tt: f64, cfmax: f64, cfr: f64, liquid_water: f64) -> f64 {
     if temp < tt {
         let refreeze = cfr * cfmax * (tt - temp);
@@ -41,6 +44,7 @@ pub fn compute_refreezing(temp: f64, tt: f64, cfmax: f64, cfr: f64, liquid_water
 /// Update snow pack and liquid water states.
 ///
 /// Returns (new_sp, new_lw, outflow).
+#[inline]
 pub fn update_snow_pack(
     sp: f64,
     lw: f64,
@@ -71,6 +75,7 @@ pub fn update_snow_pack(
 /// Compute groundwater recharge from soil.
 ///
 /// Uses the HBV soil moisture / runoff relationship: Recharge/Input = (SM/FC)^BETA.
+#[inline]
 pub fn compute_recharge(soil_input: f64, sm: f64, fc: f64, beta: f64) -> f64 {
     if fc <= 0.0 || soil_input <= 0.0 {
         return 0.0;
@@ -82,6 +87,7 @@ pub fn compute_recharge(soil_input: f64, sm: f64, fc: f64, beta: f64) -> f64 {
 /// Compute actual evapotranspiration from soil.
 ///
 /// ET is reduced linearly when SM < LP * FC.
+#[inline]
 pub fn compute_actual_et(pet: f64, sm: f64, fc: f64, lp: f64) -> f64 {
     if fc <= 0.0 || lp <= 0.0 {
         return 0.0;
@@ -101,6 +107,7 @@ pub fn compute_actual_et(pet: f64, sm: f64, fc: f64, lp: f64) -> f64 {
 /// Update soil moisture state.
 ///
 /// Returns updated soil moisture, bounded to [0, FC].
+#[inline]
 pub fn update_soil_moisture(
     sm: f64,
     soil_input: f64,

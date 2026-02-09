@@ -11,6 +11,7 @@ use super::constants::{EXP_BRANCH_THRESHOLD, MAX_EXP_ARG, MAX_TANH_ARG, PERC_CON
 /// - Case 2: P >= E (rainfall dominant)
 ///
 /// Returns (new_store, actual_et, net_rainfall_pn, effective_rainfall_pr).
+#[inline]
 pub fn production_store_update(
     precip: f64,
     pet: f64,
@@ -66,6 +67,7 @@ pub fn production_store_update(
 /// Perc = S * (1 - (1 + (S/X1)^4 / PERC_CONSTANT)^(-0.25))
 ///
 /// Returns (new_store, percolation_amount).
+#[inline]
 pub fn percolation(production_store: f64, x1: f64) -> (f64, f64) {
     let store = production_store.max(0.0);
 
@@ -81,6 +83,7 @@ pub fn percolation(production_store: f64, x1: f64) -> (f64, f64) {
 /// Compute potential groundwater exchange.
 ///
 /// F = X2 * (R/X3 - X5)
+#[inline]
 pub fn groundwater_exchange(routing_store: f64, x2: f64, x3: f64, x5: f64) -> f64 {
     x2 * (routing_store / x3 - x5)
 }
@@ -91,6 +94,7 @@ pub fn groundwater_exchange(routing_store: f64, x2: f64, x3: f64, x5: f64) -> f6
 /// and computes non-linear outflow: QR = R * (1 - 1/(1 + (R/X3)^4)^0.25).
 ///
 /// Returns (new_store, outflow_qr, actual_exchange).
+#[inline]
 pub fn routing_store_update(
     routing_store: f64,
     uh1_output: f64,
@@ -124,6 +128,7 @@ pub fn routing_store_update(
 /// Uses softplus-like function with branch equations for numerical stability.
 ///
 /// Returns (new_store, outflow_qrexp).
+#[inline]
 pub fn exponential_store_update(
     exp_store: f64,
     uh1_output: f64,
@@ -156,6 +161,7 @@ pub fn exponential_store_update(
 /// Applies non-negativity constraint: QD = max(uh2_output + exchange, 0).
 ///
 /// Returns (outflow_qd, actual_exchange).
+#[inline]
 pub fn direct_branch(uh2_output: f64, exchange: f64) -> (f64, f64) {
     let combined = uh2_output + exchange;
 

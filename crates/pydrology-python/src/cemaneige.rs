@@ -219,10 +219,9 @@ fn gr6j_cemaneige_run<'py>(
     let mut layer_precip_arr = vec![0.0f64; n_timesteps * n_layers];
 
     for t in 0..n_timesteps {
-        debug_assert_eq!(result.layers[t].len(), n_layers, "layer count mismatch at timestep {t}");
         for l in 0..n_layers {
             let idx = t * n_layers + l;
-            let lf = &result.layers[t][l];
+            let lf = &result.layers[idx];
             layer_snow_pack[idx] = lf.snow_pack;
             layer_thermal[idx] = lf.thermal_state;
             layer_gratio[idx] = lf.gratio;

@@ -45,6 +45,12 @@ impl FluxesTimeseriesOps<Fluxes> for FluxesTimeseries {
     fn is_empty(&self) -> bool {
         FluxesTimeseries::is_empty(self)
     }
+    fn with_len(n: usize) -> Self {
+        FluxesTimeseries::with_len(n)
+    }
+    unsafe fn write_unchecked(&mut self, t: usize, f: &Fluxes) {
+        unsafe { FluxesTimeseries::write_unchecked(self, t, f); }
+    }
 }
 
 /// Per-zone outputs for multi-zone runs.

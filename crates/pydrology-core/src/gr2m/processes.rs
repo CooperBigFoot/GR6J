@@ -11,6 +11,7 @@ use super::constants::{MAX_TANH_ARG, ROUTING_DENOMINATOR};
 /// - s1: store level after rainfall [mm]
 /// - p1: rainfall excess [mm/month]
 /// - ps: storage fill [mm/month]
+#[inline]
 pub fn production_store_rainfall(precip: f64, store: f64, x1: f64) -> (f64, f64, f64) {
     // Scaled precipitation with numerical safeguard
     let ws = (precip / x1).min(MAX_TANH_ARG);
@@ -36,6 +37,7 @@ pub fn production_store_rainfall(precip: f64, store: f64, x1: f64) -> (f64, f64,
 /// Returns (s2, ae):
 /// - s2: store level after evaporation [mm]
 /// - ae: actual evapotranspiration [mm/month]
+#[inline]
 pub fn production_store_evaporation(pet: f64, s1: f64, x1: f64) -> (f64, f64) {
     // Scaled evapotranspiration with numerical safeguard
     let ws = (pet / x1).min(MAX_TANH_ARG);
@@ -59,6 +61,7 @@ pub fn production_store_evaporation(pet: f64, s1: f64, x1: f64) -> (f64, f64) {
 /// Returns (s_final, p2):
 /// - s_final: store level after percolation [mm]
 /// - p2: percolation amount [mm/month]
+#[inline]
 pub fn percolation(s2: f64, x1: f64) -> (f64, f64) {
     // Ensure non-negative store
     let store = s2.max(0.0);
@@ -81,6 +84,7 @@ pub fn percolation(s2: f64, x1: f64) -> (f64, f64) {
 /// Returns (r2, aexch):
 /// - r2: routing store after exchange [mm]
 /// - aexch: actual groundwater exchange [mm/month]
+#[inline]
 pub fn routing_store_update(routing_store: f64, p3: f64, x2: f64) -> (f64, f64) {
     // Routing store after inflow
     let r1 = routing_store + p3;
@@ -100,6 +104,7 @@ pub fn routing_store_update(routing_store: f64, p3: f64, x2: f64) -> (f64, f64) 
 /// Returns (r_final, q):
 /// - r_final: routing store after streamflow [mm]
 /// - q: simulated streamflow [mm/month]
+#[inline]
 pub fn compute_streamflow(r2: f64) -> (f64, f64) {
     // Ensure non-negative store
     let store = r2.max(0.0);

@@ -138,13 +138,13 @@ pub fn run(
     };
 
     // Pre-allocate output
-    let mut outputs = FluxesTimeseries::with_capacity(n);
+    let mut outputs = FluxesTimeseries::with_len(n);
 
     // Main simulation loop
     for t in 0..n {
         let (new_state, fluxes) =
             step(&state, params, precip[t], pet[t], &uh1_ordinates, &uh2_ordinates);
-        outputs.push(&fluxes);
+        unsafe { outputs.write_unchecked(t, &fluxes); }
         state = new_state;
     }
 

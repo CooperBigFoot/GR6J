@@ -56,7 +56,8 @@ pub struct LayerFluxes {
 pub struct CoupledOutput {
     pub snow: SnowTimeseries,
     pub gr6j: GR6JFluxesTimeseries,
-    pub layers: Vec<Vec<LayerFluxes>>,
+    pub layers: Vec<LayerFluxes>,
+    pub n_layers: usize,
 }
 
 /// Run a single CemaNeige layer step (inline, no struct overhead).
@@ -250,16 +251,12 @@ pub fn coupled_run(
     };
 
     // Pre-allocate outputs
-    let mut snow_ts = SnowTimeseries::with_capacity(n);
-    let mut gr6j_ts = GR6JFluxesTimeseries::with_capacity(n);
+    let mut snow_ts = SnowTimeseries::with_len(n);
+    let mut gr6j_ts = GR6JFluxesTimeseries::with_len(n);
     // Flat allocation: n_layers per timestep, n timesteps total
     let mut all_layer_fluxes: Vec<LayerFluxes> = Vec::with_capacity(n * n_layers);
 
-    // Reusable per-timestep buffer for layer fluxes (avoid re-allocation)
-    let mut layer_fluxes_buf: Vec<LayerFluxes> = Vec::with_capacity(n_layers);
-
     for t in 0..n {
-        layer_fluxes_buf.clear();
 
         // Aggregation accumulators
         let mut agg = SnowFluxes {
@@ -311,7 +308,7 @@ pub fn coupled_run(
             agg.temp += fluxes.temp * frac;
             agg.precip += fluxes.precip * frac;
 
-            layer_fluxes_buf.push(fluxes);
+            all_layer_fluxes.push(fluxes);
         }
 
         // Feed aggregated liquid to GR6J
@@ -325,21 +322,17 @@ pub fn coupled_run(
         );
 
         gr6j_state = new_gr6j_state;
-        snow_ts.push(&agg);
-        gr6j_ts.push(&gr6j_fluxes);
-        all_layer_fluxes.extend_from_slice(&layer_fluxes_buf);
+        unsafe {
+            snow_ts.write_unchecked(t, &agg);
+            gr6j_ts.write_unchecked(t, &gr6j_fluxes);
+        }
     }
-
-    // Reshape flat layer fluxes into Vec<Vec<LayerFluxes>>
-    let layers: Vec<Vec<LayerFluxes>> = all_layer_fluxes
-        .chunks_exact(n_layers)
-        .map(|chunk| chunk.to_vec())
-        .collect();
 
     CoupledOutput {
         snow: snow_ts,
         gr6j: gr6j_ts,
-        layers,
+        layers: all_layer_fluxes,
+        n_layers,
     }
 }
 
@@ -411,7 +404,8 @@ mod tests {
 
         assert_eq!(result.snow.pliq.len(), 5);
         assert_eq!(result.gr6j.streamflow.len(), 5);
-        assert_eq!(result.layers.len(), 5);
+        assert_eq!(result.layers.len(), 5 * 1); // 5 timesteps * 1 layer
+        assert_eq!(result.n_layers, 1);
     }
 
     #[test]
@@ -449,10 +443,9 @@ mod tests {
         );
 
         assert_eq!(result.gr6j.streamflow.len(), 3);
-        // Each timestep should have 3 layers
-        for t in 0..3 {
-            assert_eq!(result.layers[t].len(), 3);
-        }
+        // Flat layers: n_timesteps * n_layers
+        assert_eq!(result.layers.len(), 3 * 3);
+        assert_eq!(result.n_layers, 3);
     }
 
     #[test]

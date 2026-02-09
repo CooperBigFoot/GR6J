@@ -74,11 +74,11 @@ pub trait HydrologicalModel {
         };
 
         let n = forcing.len();
-        let mut outputs = Self::FluxesTimeseries::with_capacity(n);
+        let mut outputs = Self::FluxesTimeseries::with_len(n);
 
-        for f in forcing {
+        for (t, f) in forcing.iter().enumerate() {
             let (new_state, fluxes) = Self::step(&state, params, f, &context);
-            outputs.push(&fluxes);
+            unsafe { outputs.write_unchecked(t, &fluxes); }
             state = new_state;
         }
 
@@ -92,4 +92,6 @@ pub trait FluxesTimeseriesOps<F> {
     fn push(&mut self, f: &F);
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
+    fn with_len(n: usize) -> Self;
+    unsafe fn write_unchecked(&mut self, t: usize, f: &F);
 }
