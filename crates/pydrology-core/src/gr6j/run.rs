@@ -74,7 +74,7 @@ pub fn step(
     let streamflow = (qr + qrexp + qd).max(0.0);
 
     // Total actual exchange
-    let actual_exchange_total = actual_exchange_routing + actual_exchange_direct + exchange_f;
+    let actual_exchange_total = actual_exchange_routing + actual_exchange_direct;
 
     let new_state = State {
         production_store: prod_store_after_perc,
@@ -362,6 +362,51 @@ mod tests {
                 result.production_store[t] <= p.x1,
                 "production store exceeds x1 at t={t}"
             );
+        }
+    }
+
+    #[test]
+    fn actual_exchange_total_equals_sum_of_components() {
+        let p = test_params();
+        let s = State::initialize(&p);
+        let (uh1, uh2) = compute_uh_ordinates(p.x4);
+        let (_new_state, fluxes) = step(&s, &p, 10.0, 3.0, &uh1, &uh2);
+
+        let expected = fluxes.actual_exchange_routing + fluxes.actual_exchange_direct;
+        assert!(
+            (fluxes.actual_exchange_total - expected).abs() < 1e-10,
+            "actual_exchange_total ({}) != routing ({}) + direct ({})",
+            fluxes.actual_exchange_total,
+            fluxes.actual_exchange_routing,
+            fluxes.actual_exchange_direct,
+        );
+    }
+
+    #[test]
+    fn actual_exchange_total_with_nonzero_exchange() {
+        // Use x2 != 0 to get non-zero exchange
+        let p = Parameters::new(350.0, 1.5, 90.0, 1.7, 0.5, 5.0).unwrap();
+        let s = State::initialize(&p);
+        let (uh1, uh2) = compute_uh_ordinates(p.x4);
+
+        let precip = [10.0, 5.0, 20.0, 0.0, 15.0, 8.0];
+        let pet = [3.0, 4.0, 2.0, 5.0, 3.0, 4.0];
+
+        let mut state = s;
+        for t in 0..precip.len() {
+            let (new_state, fluxes) = step(&state, &p, precip[t], pet[t], &uh1, &uh2);
+
+            let expected = fluxes.actual_exchange_routing + fluxes.actual_exchange_direct;
+            assert!(
+                (fluxes.actual_exchange_total - expected).abs() < 1e-10,
+                "Invariant violated at t={}: total ({}) != routing ({}) + direct ({})",
+                t,
+                fluxes.actual_exchange_total,
+                fluxes.actual_exchange_routing,
+                fluxes.actual_exchange_direct,
+            );
+
+            state = new_state;
         }
     }
 }

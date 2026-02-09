@@ -1,6 +1,7 @@
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use crate::convert::{checked_slice, checked_slice_min, contiguous_slice};
 
 use pydrology_core::cemaneige::constants::LAYER_STATE_SIZE;
 use pydrology_core::cemaneige::coupled;
@@ -74,22 +75,16 @@ fn gr6j_cemaneige_run<'py>(
     Bound<'py, PyDict>,
     Bound<'py, PyDict>,
 )> {
-    let p_slice = params.as_slice()?;
-    if p_slice.len() < 8 {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "params must have at least 8 elements, got {}",
-            p_slice.len()
-        )));
-    }
+    let p_slice = checked_slice_min(&params, 8, "params")?;
 
     let gr6j_params =
         GR6JParameters::new_unchecked(p_slice[0], p_slice[1], p_slice[2], p_slice[3], p_slice[4], p_slice[5]);
     let ctg = p_slice[6];
     let kf = p_slice[7];
 
-    let precip_slice = precip.as_slice()?;
-    let pet_slice = pet.as_slice()?;
-    let temp_slice = temp.as_slice()?;
+    let precip_slice = contiguous_slice(&precip)?;
+    let pet_slice = contiguous_slice(&pet)?;
+    let temp_slice = contiguous_slice(&temp)?;
 
     // Build layer config
     let default_elevs = vec![0.0f64; n_layers];
@@ -194,6 +189,7 @@ fn gr6j_cemaneige_run<'py>(
     let mut layer_precip_arr = vec![0.0f64; n_timesteps * n_layers];
 
     for t in 0..n_timesteps {
+        debug_assert_eq!(result.layers[t].len(), n_layers, "layer count mismatch at timestep {t}");
         for l in 0..n_layers {
             let idx = t * n_layers + l;
             let lf = &result.layers[t][l];
@@ -241,6 +237,7 @@ fn gr6j_cemaneige_run<'py>(
 
 /// Convert a flat 1D array to a Vec<Vec<f64>> for PyArray2::from_vec2.
 fn to_2d(flat: &[f64], rows: usize, cols: usize) -> Vec<Vec<f64>> {
+    debug_assert_eq!(flat.len(), rows * cols, "flat array length mismatch in to_2d");
     (0..rows)
         .map(|r| flat[r * cols..(r + 1) * cols].to_vec())
         .collect()
@@ -280,32 +277,19 @@ fn gr6j_cemaneige_step<'py>(
     temp_gradient: Option<f64>,
     precip_gradient: Option<f64>,
 ) -> PyResult<(Bound<'py, PyArray1<f64>>, Bound<'py, PyDict>)> {
-    let p_slice = params.as_slice()?;
-    if p_slice.len() < 8 {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "params must have at least 8 elements, got {}",
-            p_slice.len()
-        )));
-    }
+    let p_slice = checked_slice_min(&params, 8, "params")?;
 
     let gr6j_params =
         GR6JParameters::new_unchecked(p_slice[0], p_slice[1], p_slice[2], p_slice[3], p_slice[4], p_slice[5]);
     let ctg = p_slice[6];
     let kf = p_slice[7];
 
-    let s_slice = state.as_slice()?;
-    let elevs = layer_elevations.as_slice()?;
-    let fracs = layer_fractions.as_slice()?;
+    let elevs = contiguous_slice(&layer_elevations)?;
+    let fracs = contiguous_slice(&layer_fractions)?;
     let n_layers = elevs.len();
 
     let expected_state_size = 63 + n_layers * LAYER_STATE_SIZE;
-    if s_slice.len() != expected_state_size {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "state must have {} elements, got {}",
-            expected_state_size,
-            s_slice.len()
-        )));
-    }
+    let s_slice = checked_slice(&state, expected_state_size, "state")?;
 
     // Parse GR6J state
     let mut gr6j_arr = [0.0f64; 63];
@@ -322,25 +306,11 @@ fn gr6j_cemaneige_step<'py>(
     }
 
     // Parse UH ordinates
-    let uh1_slice = uh1_ordinates.as_slice()?;
-    if uh1_slice.len() != NH {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "uh1_ordinates must have {} elements, got {}",
-            NH,
-            uh1_slice.len()
-        )));
-    }
+    let uh1_slice = checked_slice(&uh1_ordinates, NH, "uh1_ordinates")?;
     let mut uh1_arr = [0.0f64; NH];
     uh1_arr.copy_from_slice(uh1_slice);
 
-    let uh2_slice = uh2_ordinates.as_slice()?;
-    if uh2_slice.len() != 2 * NH {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "uh2_ordinates must have {} elements, got {}",
-            2 * NH,
-            uh2_slice.len()
-        )));
-    }
+    let uh2_slice = checked_slice(&uh2_ordinates, 2 * NH, "uh2_ordinates")?;
     let mut uh2_arr = [0.0f64; 2 * NH];
     uh2_arr.copy_from_slice(uh2_slice);
 

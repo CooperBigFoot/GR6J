@@ -1,6 +1,7 @@
 use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use crate::convert::{checked_slice, contiguous_slice};
 
 use pydrology_core::gr2m::params::Parameters;
 use pydrology_core::gr2m::run;
@@ -39,16 +40,16 @@ fn gr2m_run<'py>(
     pet: PyReadonlyArray1<'py, f64>,
     initial_state: Option<PyReadonlyArray1<'py, f64>>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let p_slice = params.as_slice()?;
+    let p_slice = checked_slice(&params, 2, "params")?;
     let p = Parameters::new(p_slice[0], p_slice[1])
         .map_err(pyo3::exceptions::PyValueError::new_err)?;
 
-    let precip_slice = precip.as_slice()?;
-    let pet_slice = pet.as_slice()?;
+    let precip_slice = contiguous_slice(&precip)?;
+    let pet_slice = contiguous_slice(&pet)?;
 
     let state = match &initial_state {
         Some(s) => {
-            let s_slice = s.as_slice()?;
+            let s_slice = checked_slice(s, 2, "initial_state")?;
             Some(State {
                 production_store: s_slice[0],
                 routing_store: s_slice[1],
@@ -75,11 +76,11 @@ fn gr2m_step<'py>(
     precip: f64,
     pet: f64,
 ) -> PyResult<(Bound<'py, PyArray1<f64>>, Bound<'py, PyDict>)> {
-    let p_slice = params.as_slice()?;
+    let p_slice = checked_slice(&params, 2, "params")?;
     let p = Parameters::new(p_slice[0], p_slice[1])
         .map_err(pyo3::exceptions::PyValueError::new_err)?;
 
-    let s_slice = state.as_slice()?;
+    let s_slice = checked_slice(&state, 2, "state")?;
     let s = State {
         production_store: s_slice[0],
         routing_store: s_slice[1],
@@ -101,15 +102,11 @@ fn gr2m_step<'py>(
 }
 
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
-    let py = parent.py();
-    let m = PyModule::new(py, "gr2m")?;
+    let m = PyModule::new(parent.py(), "gr2m")?;
     m.add_function(wrap_pyfunction!(gr2m_run, &m)?)?;
     m.add_function(wrap_pyfunction!(gr2m_step, &m)?)?;
     m.add_class::<GR2MResult>()?;
     m.add_class::<GR2MStepFluxes>()?;
     parent.add_submodule(&m)?;
-    py.import("sys")?
-        .getattr("modules")?
-        .set_item("pydrology._core.gr2m", &m)?;
     Ok(())
 }

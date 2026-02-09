@@ -1,6 +1,7 @@
 use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use crate::convert::{checked_slice, checked_slice_min, contiguous_slice};
 
 use pydrology_core::gr6j::constants::NH;
 use pydrology_core::gr6j::params::Parameters;
@@ -45,20 +46,15 @@ fn gr6j_run<'py>(
     pet: PyReadonlyArray1<'py, f64>,
     initial_state: Option<PyReadonlyArray1<'py, f64>>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let p_slice = params.as_slice()?;
+    let p_slice = checked_slice_min(&params, 6, "params")?;
     let p = Parameters::new_unchecked(p_slice[0], p_slice[1], p_slice[2], p_slice[3], p_slice[4], p_slice[5]);
 
-    let precip_slice = precip.as_slice()?;
-    let pet_slice = pet.as_slice()?;
+    let precip_slice = contiguous_slice(&precip)?;
+    let pet_slice = contiguous_slice(&pet)?;
 
     let state = match &initial_state {
         Some(s) => {
-            let s_slice = s.as_slice()?;
-            if s_slice.len() != 63 {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    format!("initial_state must have 63 elements, got {}", s_slice.len()),
-                ));
-            }
+            let s_slice = checked_slice(s, 63, "initial_state")?;
             let mut arr = [0.0f64; 63];
             arr.copy_from_slice(s_slice);
             Some(State::from_array(&arr))
@@ -88,34 +84,19 @@ fn gr6j_step<'py>(
     uh1_ordinates: PyReadonlyArray1<'py, f64>,
     uh2_ordinates: PyReadonlyArray1<'py, f64>,
 ) -> PyResult<(Bound<'py, PyArray1<f64>>, Bound<'py, PyDict>)> {
-    let p_slice = params.as_slice()?;
+    let p_slice = checked_slice_min(&params, 6, "params")?;
     let p = Parameters::new_unchecked(p_slice[0], p_slice[1], p_slice[2], p_slice[3], p_slice[4], p_slice[5]);
 
-    let s_slice = state.as_slice()?;
-    if s_slice.len() != 63 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            format!("state must have 63 elements, got {}", s_slice.len()),
-        ));
-    }
+    let s_slice = checked_slice(&state, 63, "state")?;
     let mut state_arr = [0.0f64; 63];
     state_arr.copy_from_slice(s_slice);
     let s = State::from_array(&state_arr);
 
-    let uh1_slice = uh1_ordinates.as_slice()?;
-    if uh1_slice.len() != NH {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            format!("uh1_ordinates must have {} elements, got {}", NH, uh1_slice.len()),
-        ));
-    }
+    let uh1_slice = checked_slice(&uh1_ordinates, NH, "uh1_ordinates")?;
     let mut uh1_arr = [0.0f64; NH];
     uh1_arr.copy_from_slice(uh1_slice);
 
-    let uh2_slice = uh2_ordinates.as_slice()?;
-    if uh2_slice.len() != 2 * NH {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            format!("uh2_ordinates must have {} elements, got {}", 2 * NH, uh2_slice.len()),
-        ));
-    }
+    let uh2_slice = checked_slice(&uh2_ordinates, 2 * NH, "uh2_ordinates")?;
     let mut uh2_arr = [0.0f64; 2 * NH];
     uh2_arr.copy_from_slice(uh2_slice);
 
@@ -148,16 +129,12 @@ fn gr6j_compute_uh_ordinates<'py>(
 }
 
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
-    let py = parent.py();
-    let m = PyModule::new(py, "gr6j")?;
+    let m = PyModule::new(parent.py(), "gr6j")?;
     m.add_function(wrap_pyfunction!(gr6j_run, &m)?)?;
     m.add_function(wrap_pyfunction!(gr6j_step, &m)?)?;
     m.add_function(wrap_pyfunction!(gr6j_compute_uh_ordinates, &m)?)?;
     m.add_class::<GR6JResult>()?;
     m.add_class::<GR6JStepFluxes>()?;
     parent.add_submodule(&m)?;
-    py.import("sys")?
-        .getattr("modules")?
-        .set_item("pydrology._core.gr6j", &m)?;
     Ok(())
 }

@@ -351,3 +351,61 @@ class TestRun:
             f"Mass balance error too large: {mass_balance_error:.2f} mm "
             f"(precip={total_precip:.2f}, Q={total_streamflow:.2f}, ET={total_et:.2f})"
         )
+
+
+class TestExchangeInvariant:
+    """Tests that actual_exchange_total == actual_exchange_routing + actual_exchange_direct."""
+
+    def test_actual_exchange_total_is_sum_of_components(
+        self,
+        typical_params: Parameters,
+    ) -> None:
+        """Run model and assert exchange invariant holds element-wise."""
+        n_days = 30
+        rng = np.random.default_rng(42)
+
+        # Use params with x2 != 0 to get non-zero exchange
+        params = Parameters(x1=350.0, x2=1.5, x3=90.0, x4=1.7, x5=0.5, x6=5.0)
+
+        forcing = ForcingData(
+            time=pd.date_range("2020-01-01", periods=n_days, freq="D").values,
+            precip=rng.uniform(0, 25, n_days),
+            pet=rng.uniform(2, 6, n_days),
+        )
+
+        result = run(params, forcing)
+
+        expected = result.fluxes.actual_exchange_routing + result.fluxes.actual_exchange_direct
+        np.testing.assert_allclose(
+            result.fluxes.actual_exchange_total,
+            expected,
+            atol=1e-10,
+            err_msg="actual_exchange_total != actual_exchange_routing + actual_exchange_direct",
+        )
+
+
+class TestValidationErrors:
+    """Tests for array validation at the Rust boundary."""
+
+    def test_run_rejects_wrong_length_params(self) -> None:
+        """gr6j_run raises ValueError for wrong-length params array."""
+        from pydrology._core.gr6j import gr6j_run
+
+        wrong_params = np.array([350.0, 0.0, 90.0, 1.7])  # needs >= 6 elements
+        precip = np.array([10.0, 5.0])
+        pet = np.array([3.0, 4.0])
+
+        with pytest.raises(ValueError, match="must have"):
+            gr6j_run(wrong_params, precip, pet)
+
+    def test_step_rejects_wrong_length_params(self) -> None:
+        """gr6j_step raises ValueError for wrong-length params array."""
+        from pydrology._core.gr6j import gr6j_step
+
+        state = np.zeros(63)
+        wrong_params = np.array([350.0, 0.0, 90.0, 1.7])  # needs >= 6 elements
+        uh1 = np.zeros(20)
+        uh2 = np.zeros(40)
+
+        with pytest.raises(ValueError, match="must have"):
+            gr6j_step(state, wrong_params, 10.0, 3.0, uh1, uh2)

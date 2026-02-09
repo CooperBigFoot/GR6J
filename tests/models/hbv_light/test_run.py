@@ -514,3 +514,54 @@ class TestZoneOutputs:
         assert result.zone_outputs is not None
         for key, values in result.zone_outputs.to_dict().items():
             assert np.all(np.isfinite(values)), f"Zone output '{key}' has non-finite values"
+
+
+class TestValidationErrors:
+    """Tests for array validation at the Rust boundary."""
+
+    def test_run_rejects_wrong_length_params(self) -> None:
+        """hbv_run raises ValueError for wrong-length params array."""
+        from pydrology._core.hbv_light import hbv_run
+
+        wrong_params = np.array([0.0, 3.0, 1.0, 0.1, 0.05, 250.0, 0.9, 2.0, 0.4, 0.1])  # needs 14 elements
+        precip = np.array([10.0, 5.0])
+        pet = np.array([3.0, 4.0])
+        temp = np.array([5.0, 2.0])
+
+        with pytest.raises(ValueError, match="must have"):
+            hbv_run(wrong_params, precip, pet, temp)
+
+    def test_run_rejects_wrong_length_state(self) -> None:
+        """hbv_run raises ValueError for wrong-length initial_state."""
+        from pydrology._core.hbv_light import hbv_run
+
+        params = np.array([0.0, 3.0, 1.0, 0.1, 0.05, 250.0, 0.9, 2.0, 0.4, 0.1, 0.01, 1.0, 20.0, 2.5])
+        precip = np.array([10.0, 5.0])
+        pet = np.array([3.0, 4.0])
+        temp = np.array([5.0, 2.0])
+        wrong_state = np.array([0.0, 0.0, 125.0, 0.0, 0.0])  # needs 12 elements (1 zone * 3 + 9)
+
+        with pytest.raises(ValueError, match="must have"):
+            hbv_run(params, precip, pet, temp, initial_state=wrong_state)
+
+    def test_step_rejects_wrong_length_params(self) -> None:
+        """hbv_step raises ValueError for wrong-length params array."""
+        from pydrology._core.hbv_light import hbv_step
+
+        state = np.zeros(12)
+        wrong_params = np.array([0.0, 3.0, 1.0, 0.1, 0.05, 250.0, 0.9, 2.0, 0.4, 0.1])  # needs 14 elements
+        uh_weights = np.array([0.25, 0.5, 0.25])
+
+        with pytest.raises(ValueError, match="must have"):
+            hbv_step(state, wrong_params, 10.0, 3.0, 5.0, uh_weights)
+
+    def test_step_rejects_wrong_length_state(self) -> None:
+        """hbv_step raises ValueError for wrong-length state array."""
+        from pydrology._core.hbv_light import hbv_step
+
+        wrong_state = np.array([0.0, 0.0, 125.0, 0.0, 0.0])  # needs 12 elements
+        params = np.array([0.0, 3.0, 1.0, 0.1, 0.05, 250.0, 0.9, 2.0, 0.4, 0.1, 0.01, 1.0, 20.0, 2.5])
+        uh_weights = np.array([0.25, 0.5, 0.25])
+
+        with pytest.raises(ValueError, match="must have"):
+            hbv_step(wrong_state, params, 10.0, 3.0, 5.0, uh_weights)

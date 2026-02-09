@@ -34,8 +34,7 @@ fn rust_mae(observed: PyReadonlyArray1<'_, f64>, simulated: PyReadonlyArray1<'_,
 }
 
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
-    let py = parent.py();
-    let m = PyModule::new(py, "metrics")?;
+    let m = PyModule::new(parent.py(), "metrics")?;
     m.add_function(wrap_pyfunction!(rust_nse, &m)?)?;
     m.add_function(wrap_pyfunction!(rust_log_nse, &m)?)?;
     m.add_function(wrap_pyfunction!(rust_kge, &m)?)?;
@@ -43,9 +42,5 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rust_rmse, &m)?)?;
     m.add_function(wrap_pyfunction!(rust_mae, &m)?)?;
     parent.add_submodule(&m)?;
-    // Register in sys.modules so `from pydrology._core.metrics import ...` works
-    py.import("sys")?
-        .getattr("modules")?
-        .set_item("pydrology._core.metrics", &m)?;
     Ok(())
 }

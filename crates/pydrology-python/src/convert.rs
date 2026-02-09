@@ -23,3 +23,19 @@ pub fn checked_slice<'py>(
     }
     Ok(slice)
 }
+
+/// Validate minimum length + contiguity of a numpy array.
+pub fn checked_slice_min<'py>(
+    arr: &'py PyReadonlyArray1<'py, f64>,
+    min_len: usize,
+    name: &str,
+) -> PyResult<&'py [f64]> {
+    let slice = contiguous_slice(arr)?;
+    if slice.len() < min_len {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "{} must have at least {} elements, got {}",
+            name, min_len, slice.len()
+        )));
+    }
+    Ok(slice)
+}

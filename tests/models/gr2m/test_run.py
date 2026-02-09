@@ -353,3 +353,50 @@ class TestMassBalance:
             f"Mass balance error too large: {mass_balance_error:.2f} mm "
             f"(P={total_precip:.2f}, Q={total_streamflow:.2f}, ET={total_et:.2f}, dS={storage_change:.2f})"
         )
+
+
+class TestValidationErrors:
+    """Tests for array validation at the Rust boundary."""
+
+    def test_run_rejects_wrong_length_params(self) -> None:
+        """gr2m_run raises ValueError for wrong-length params array."""
+        from pydrology._core.gr2m import gr2m_run
+
+        wrong_params = np.array([500.0])  # needs 2 elements
+        precip = np.array([80.0, 70.0])
+        pet = np.array([20.0, 25.0])
+
+        with pytest.raises(ValueError, match="must have"):
+            gr2m_run(wrong_params, precip, pet)
+
+    def test_run_rejects_wrong_length_state(self) -> None:
+        """gr2m_run raises ValueError for wrong-length initial_state."""
+        from pydrology._core.gr2m import gr2m_run
+
+        params = np.array([500.0, 1.0])
+        precip = np.array([80.0, 70.0])
+        pet = np.array([20.0, 25.0])
+        wrong_state = np.array([150.0, 150.0, 0.0])  # needs 2 elements
+
+        with pytest.raises(ValueError, match="must have"):
+            gr2m_run(params, precip, pet, initial_state=wrong_state)
+
+    def test_step_rejects_wrong_length_params(self) -> None:
+        """gr2m_step raises ValueError for wrong-length params array."""
+        from pydrology._core.gr2m import gr2m_step
+
+        state = np.array([150.0, 150.0])
+        wrong_params = np.array([500.0])  # needs 2 elements
+
+        with pytest.raises(ValueError, match="must have"):
+            gr2m_step(state, wrong_params, 80.0, 20.0)
+
+    def test_step_rejects_wrong_length_state(self) -> None:
+        """gr2m_step raises ValueError for wrong-length state array."""
+        from pydrology._core.gr2m import gr2m_step
+
+        wrong_state = np.array([150.0])  # needs 2 elements
+        params = np.array([500.0, 1.0])
+
+        with pytest.raises(ValueError, match="must have"):
+            gr2m_step(wrong_state, params, 80.0, 20.0)

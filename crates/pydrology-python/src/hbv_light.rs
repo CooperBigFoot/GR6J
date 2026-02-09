@@ -1,6 +1,7 @@
 use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use crate::convert::{checked_slice, contiguous_slice};
 
 use pydrology_core::hbv_light::params::Parameters;
 use pydrology_core::hbv_light::routing::compute_triangular_weights;
@@ -65,17 +66,18 @@ fn hbv_run<'py>(
     temp_gradient: Option<f64>,
     precip_gradient: Option<f64>,
 ) -> PyResult<(Bound<'py, PyDict>, Option<Bound<'py, PyDict>>)> {
-    let p_slice = params.as_slice()?;
+    let p_slice = checked_slice(&params, 14, "params")?;
     let p = Parameters::from_array(p_slice)
         .map_err(pyo3::exceptions::PyValueError::new_err)?;
 
-    let precip_slice = precip.as_slice()?;
-    let pet_slice = pet.as_slice()?;
-    let temp_slice = temp.as_slice()?;
+    let precip_slice = contiguous_slice(&precip)?;
+    let pet_slice = contiguous_slice(&pet)?;
+    let temp_slice = contiguous_slice(&temp)?;
 
     let state = match &initial_state {
         Some(s) => {
-            let s_slice = s.as_slice()?;
+            let expected_len = n_zones * 3 + 9;
+            let s_slice = checked_slice(s, expected_len, "initial_state")?;
             Some(State::from_array(s_slice, n_zones))
         }
         None => None,
@@ -137,6 +139,7 @@ fn hbv_run<'py>(
             let flatten_2d = |data: &[Vec<f64>]| -> Vec<f64> {
                 let mut flat = Vec::with_capacity(n_timesteps * n_z);
                 for row in data {
+                    debug_assert_eq!(row.len(), n_z, "zone row length mismatch");
                     flat.extend_from_slice(row);
                 }
                 flat
@@ -176,11 +179,11 @@ fn hbv_step<'py>(
     temp: f64,
     uh_weights: PyReadonlyArray1<'py, f64>,
 ) -> PyResult<(Bound<'py, PyArray1<f64>>, Bound<'py, PyDict>)> {
-    let p_slice = params.as_slice()?;
+    let p_slice = checked_slice(&params, 14, "params")?;
     let p = Parameters::from_array(p_slice)
         .map_err(pyo3::exceptions::PyValueError::new_err)?;
 
-    let s_slice = state.as_slice()?;
+    let s_slice = checked_slice(&state, 12, "state")?;
     let s = State::from_array(s_slice, 1);
 
     let uh_slice = uh_weights.as_slice()?;
@@ -210,16 +213,12 @@ fn hbv_triangular_weights<'py>(
 }
 
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
-    let py = parent.py();
-    let m = PyModule::new(py, "hbv_light")?;
+    let m = PyModule::new(parent.py(), "hbv_light")?;
     m.add_function(wrap_pyfunction!(hbv_run, &m)?)?;
     m.add_function(wrap_pyfunction!(hbv_step, &m)?)?;
     m.add_function(wrap_pyfunction!(hbv_triangular_weights, &m)?)?;
     m.add_class::<HBVResult>()?;
     m.add_class::<HBVStepFluxes>()?;
     parent.add_submodule(&m)?;
-    py.import("sys")?
-        .getattr("modules")?
-        .set_item("pydrology._core.hbv_light", &m)?;
     Ok(())
 }
