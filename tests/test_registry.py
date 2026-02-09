@@ -52,8 +52,6 @@ class TestModelRegistry:
         assert "param_names" in info
         assert "default_bounds" in info
         assert "state_size" in info
-        assert "has_numba" in info
-
     def test_get_model_info_param_names(self) -> None:
         """get_model_info returns correct parameter names for GR6J."""
         info = registry.get_model_info("gr6j")

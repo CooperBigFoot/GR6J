@@ -1,17 +1,11 @@
 """HBV-light snow and soil moisture process functions.
 
-Numba-compiled functions implementing the snow routine (precipitation partitioning,
+Pure functions implementing the snow routine (precipitation partitioning,
 accumulation, melt, refreezing) and soil moisture routine (recharge, evapotranspiration).
 """
 
-# ruff: noqa: I001
-# Import order matters: _compat must patch numpy before numba import
-import pydrology._compat  # noqa: F401
-
-from numba import njit
 
 
-@njit(cache=True)
 def partition_precipitation(precip: float, temp: float, tt: float, sfcf: float) -> tuple[float, float]:
     """Partition precipitation into rain and snow.
 
@@ -30,7 +24,7 @@ def partition_precipitation(precip: float, temp: float, tt: float, sfcf: float) 
         return 0.0, sfcf * precip
 
 
-@njit(cache=True)
+
 def compute_melt(temp: float, tt: float, cfmax: float, snow_pack: float) -> float:
     """Compute snowmelt using degree-day method.
 
@@ -49,7 +43,7 @@ def compute_melt(temp: float, tt: float, cfmax: float, snow_pack: float) -> floa
     return 0.0
 
 
-@njit(cache=True)
+
 def compute_refreezing(temp: float, tt: float, cfmax: float, cfr: float, liquid_water: float) -> float:
     """Compute refreezing of liquid water in snowpack.
 
@@ -69,7 +63,7 @@ def compute_refreezing(temp: float, tt: float, cfmax: float, cfr: float, liquid_
     return 0.0
 
 
-@njit(cache=True)
+
 def update_snow_pack(
     sp: float,
     lw: float,
@@ -117,7 +111,7 @@ def update_snow_pack(
     return new_sp, new_lw, outflow
 
 
-@njit(cache=True)
+
 def compute_recharge(soil_input: float, sm: float, fc: float, beta: float) -> float:
     """Compute groundwater recharge from soil.
 
@@ -145,7 +139,7 @@ def compute_recharge(soil_input: float, sm: float, fc: float, beta: float) -> fl
     return recharge
 
 
-@njit(cache=True)
+
 def compute_actual_et(pet: float, sm: float, fc: float, lp: float) -> float:
     """Compute actual evapotranspiration from soil.
 
@@ -174,7 +168,7 @@ def compute_actual_et(pet: float, sm: float, fc: float, lp: float) -> float:
     return et_act
 
 
-@njit(cache=True)
+
 def update_soil_moisture(
     sm: float,
     soil_input: float,

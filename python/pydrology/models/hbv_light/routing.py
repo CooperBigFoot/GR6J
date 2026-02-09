@@ -4,15 +4,12 @@ Functions for the groundwater response routine (upper and lower zone reservoirs)
 and triangular unit hydrograph routing.
 """
 
-# Import order matters: _compat must patch numpy before numba import
-import pydrology._compat  # noqa: F401  # isort: skip
 import math
 
 import numpy as np
-from numba import njit
 
 
-@njit(cache=True)
+
 def upper_zone_outflows(suz: float, k0: float, k1: float, uzl: float) -> tuple[float, float]:
     """Compute outflows from upper groundwater zone.
 
@@ -37,7 +34,7 @@ def upper_zone_outflows(suz: float, k0: float, k1: float, uzl: float) -> tuple[f
     return q0, q1
 
 
-@njit(cache=True)
+
 def compute_percolation(suz: float, perc_max: float) -> float:
     """Compute percolation from upper to lower zone.
 
@@ -51,7 +48,7 @@ def compute_percolation(suz: float, perc_max: float) -> float:
     return min(perc_max, max(suz, 0.0))
 
 
-@njit(cache=True)
+
 def update_upper_zone(suz: float, recharge: float, q0: float, q1: float, perc: float) -> float:
     """Update upper zone storage.
 
@@ -69,7 +66,7 @@ def update_upper_zone(suz: float, recharge: float, q0: float, q1: float, perc: f
     return max(0.0, new_suz)
 
 
-@njit(cache=True)
+
 def lower_zone_outflow(slz: float, k2: float) -> float:
     """Compute baseflow from lower groundwater zone.
 
@@ -83,7 +80,7 @@ def lower_zone_outflow(slz: float, k2: float) -> float:
     return k2 * slz
 
 
-@njit(cache=True)
+
 def update_lower_zone(slz: float, perc: float, q2: float) -> float:
     """Update lower zone storage.
 
@@ -160,7 +157,7 @@ def compute_triangular_weights(maxbas: float) -> np.ndarray:
     return weights
 
 
-@njit(cache=True)
+
 def convolve_triangular(qgw: float, buffer: np.ndarray, weights: np.ndarray) -> tuple[np.ndarray, float]:
     """Convolve groundwater runoff with triangular unit hydrograph.
 

@@ -1,7 +1,7 @@
-"""Tests for GR6J Numba acceleration.
+"""Tests for GR6J Rust backend equivalence.
 
-Tests verify that Numba-compiled functions produce identical results
-to the pure Python implementations.
+Tests verify that the Rust-backed GR6J functions produce correct and
+consistent results between step-by-step and full run execution.
 """
 
 import numpy as np
@@ -9,13 +9,13 @@ import pandas as pd
 import pytest
 
 from pydrology import ForcingData, Parameters, run
-from pydrology.models.gr6j.run import _run_numba, _step_numba, step
+from pydrology.models.gr6j.run import step
 from pydrology.models.gr6j.types import State
 from pydrology.models.gr6j.unit_hydrographs import compute_uh_ordinates
 
 
-class TestStepNumbaEquivalence:
-    """Tests that _step_numba produces same results as step()."""
+class TestStepRunEquivalence:
+    """Tests that step-by-step execution matches run()."""
 
     @pytest.fixture
     def params(self) -> Parameters:
@@ -25,66 +25,40 @@ class TestStepNumbaEquivalence:
     def state(self, params: Parameters) -> State:
         return State.initialize(params)
 
-    def test_single_step_equivalence(self, params: Parameters, state: State) -> None:
-        """Single step produces identical results in Numba and Python."""
+    def test_single_step_produces_valid_output(self, params: Parameters, state: State) -> None:
+        """Single step produces valid, finite outputs."""
         uh1_ord, uh2_ord = compute_uh_ordinates(params.x4)
         precip, pet = 10.0, 3.0
 
-        # Python step
-        new_state_py, fluxes_py = step(state, params, precip, pet, uh1_ord, uh2_ord)
+        new_state, fluxes = step(state, params, precip, pet, uh1_ord, uh2_ord)
 
-        # Numba step
-        state_arr = np.asarray(state)
-        params_arr = np.asarray(params)
-        output_arr = np.zeros(20)
-        _step_numba(state_arr, params_arr, precip, pet, uh1_ord, uh2_ord, output_arr)
-
-        # Compare outputs
-        assert output_arr[19] == pytest.approx(fluxes_py["streamflow"], rel=1e-10)
-        assert output_arr[2] == pytest.approx(fluxes_py["production_store"], rel=1e-10)
-        assert output_arr[10] == pytest.approx(fluxes_py["routing_store"], rel=1e-10)
-        assert output_arr[17] == pytest.approx(fluxes_py["exponential_store"], rel=1e-10)
+        assert np.isfinite(fluxes["streamflow"])
+        assert np.isfinite(fluxes["production_store"])
+        assert np.isfinite(fluxes["routing_store"])
+        assert np.isfinite(fluxes["exponential_store"])
 
     def test_multiple_steps_state_evolution(self, params: Parameters, state: State) -> None:
-        """State evolves identically over multiple steps."""
+        """State evolves correctly over multiple steps."""
         uh1_ord, uh2_ord = compute_uh_ordinates(params.x4)
 
-        # Numba path
-        state_arr = np.asarray(state)
-        params_arr = np.asarray(params)
-        output_arr = np.zeros(20)
-
-        # Python path
-        state_py = State.initialize(params)
-
+        current_state = state
         for i in range(10):
             precip = 5.0 + i * 2
             pet = 2.0 + i * 0.5
+            current_state, _ = step(current_state, params, precip, pet, uh1_ord, uh2_ord)
 
-            state_py, _ = step(state_py, params, precip, pet, uh1_ord, uh2_ord)
-            _step_numba(state_arr, params_arr, precip, pet, uh1_ord, uh2_ord, output_arr)
-
-        # Compare final states
-        assert state_arr[0] == pytest.approx(state_py.production_store, rel=1e-10)
-        assert state_arr[1] == pytest.approx(state_py.routing_store, rel=1e-10)
-        assert state_arr[2] == pytest.approx(state_py.exponential_store, rel=1e-10)
+        assert np.isfinite(current_state.production_store)
+        assert np.isfinite(current_state.routing_store)
+        assert np.isfinite(current_state.exponential_store)
 
     def test_step_all_output_fields(self, params: Parameters, state: State) -> None:
-        """All 20 output fields match between Numba and Python."""
+        """All 20 output fields are present and finite."""
         uh1_ord, uh2_ord = compute_uh_ordinates(params.x4)
         precip, pet = 15.0, 4.0
 
-        # Python step
-        _, fluxes_py = step(state, params, precip, pet, uh1_ord, uh2_ord)
+        _, fluxes = step(state, params, precip, pet, uh1_ord, uh2_ord)
 
-        # Numba step
-        state_arr = np.asarray(state)
-        params_arr = np.asarray(params)
-        output_arr = np.zeros(20)
-        _step_numba(state_arr, params_arr, precip, pet, uh1_ord, uh2_ord, output_arr)
-
-        # Map output array indices to flux keys
-        output_mapping = [
+        expected_keys = [
             "pet",
             "precip",
             "production_store",
@@ -107,33 +81,13 @@ class TestStepNumbaEquivalence:
             "streamflow",
         ]
 
-        for idx, key in enumerate(output_mapping):
-            assert output_arr[idx] == pytest.approx(fluxes_py[key], rel=1e-10), (
-                f"Field {key} (index {idx}) does not match"
-            )
-
-    def test_uh_state_evolution(self, params: Parameters, state: State) -> None:
-        """Unit hydrograph states evolve correctly."""
-        uh1_ord, uh2_ord = compute_uh_ordinates(params.x4)
-        precip, pet = 20.0, 3.0
-
-        # Python step
-        new_state_py, _ = step(state, params, precip, pet, uh1_ord, uh2_ord)
-
-        # Numba step
-        state_arr = np.asarray(state)
-        params_arr = np.asarray(params)
-        output_arr = np.zeros(20)
-        _step_numba(state_arr, params_arr, precip, pet, uh1_ord, uh2_ord, output_arr)
-
-        # Compare UH1 states (indices 3:23)
-        np.testing.assert_allclose(state_arr[3:23], new_state_py.uh1_states, rtol=1e-10)
-        # Compare UH2 states (indices 23:63)
-        np.testing.assert_allclose(state_arr[23:63], new_state_py.uh2_states, rtol=1e-10)
+        for key in expected_keys:
+            assert key in fluxes, f"Missing key: {key}"
+            assert np.isfinite(fluxes[key]), f"Non-finite value for {key}"
 
 
-class TestRunNumbaEquivalence:
-    """Tests that _run_numba produces same results as the slow path."""
+class TestRunEquivalence:
+    """Tests that run() matches step-by-step execution."""
 
     @pytest.fixture
     def params(self) -> Parameters:
@@ -149,12 +103,10 @@ class TestRunNumbaEquivalence:
             pet=rng.uniform(2, 6, n),
         )
 
-    def test_full_run_equivalence(self, params: Parameters, forcing: ForcingData) -> None:
-        """Full simulation produces identical streamflow."""
-        # Run via the normal API (uses Numba internally)
+    def test_full_run_matches_step_loop(self, params: Parameters, forcing: ForcingData) -> None:
+        """Full simulation produces identical streamflow to step-by-step."""
         result = run(params, forcing)
 
-        # Run manually with the slow Python path for comparison
         state = State.initialize(params)
         uh1_ord, uh2_ord = compute_uh_ordinates(params.x4)
 
@@ -173,13 +125,12 @@ class TestRunNumbaEquivalence:
         np.testing.assert_allclose(result.fluxes.streamflow, streamflow_py, rtol=1e-10)
 
     def test_all_outputs_match(self, params: Parameters, forcing: ForcingData) -> None:
-        """All 20 GR6J output fields match between Numba and Python paths."""
+        """All 20 GR6J output fields match between run() and step loop."""
         result = run(params, forcing)
 
         state = State.initialize(params)
         uh1_ord, uh2_ord = compute_uh_ordinates(params.x4)
 
-        # Collect all outputs from Python path
         outputs_py: dict[str, list[float]] = {
             k: []
             for k in [
@@ -218,7 +169,6 @@ class TestRunNumbaEquivalence:
             for k in outputs_py:
                 outputs_py[k].append(fluxes[k])
 
-        # Compare all fields
         for k in outputs_py:
             np.testing.assert_allclose(
                 getattr(result.fluxes, k),
@@ -227,45 +177,9 @@ class TestRunNumbaEquivalence:
                 err_msg=f"Field {k} does not match",
             )
 
-    def test_run_numba_direct(self, params: Parameters, forcing: ForcingData) -> None:
-        """Test _run_numba directly against Python path."""
-        state = State.initialize(params)
-        uh1_ord, uh2_ord = compute_uh_ordinates(params.x4)
-
-        # Numba path
-        state_arr = np.asarray(state)
-        params_arr = np.asarray(params)
-        outputs_arr = np.zeros((len(forcing), 20), dtype=np.float64)
-
-        _run_numba(
-            state_arr,
-            params_arr,
-            forcing.precip.astype(np.float64),
-            forcing.pet.astype(np.float64),
-            uh1_ord,
-            uh2_ord,
-            outputs_arr,
-        )
-
-        # Python path
-        state_py = State.initialize(params)
-        streamflow_py = []
-        for i in range(len(forcing)):
-            state_py, fluxes = step(
-                state_py,
-                params,
-                float(forcing.precip[i]),
-                float(forcing.pet[i]),
-                uh1_ord,
-                uh2_ord,
-            )
-            streamflow_py.append(fluxes["streamflow"])
-
-        np.testing.assert_allclose(outputs_arr[:, 19], streamflow_py, rtol=1e-10)
-
 
 class TestEdgeCases:
-    """Tests for edge cases in Numba implementation."""
+    """Tests for edge cases in GR6J implementation."""
 
     def test_zero_precipitation(self) -> None:
         """Handles zero precipitation correctly."""
@@ -330,8 +244,8 @@ class TestEdgeCases:
         params = Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5)
         forcing = ForcingData(
             time=pd.date_range("2020-01-01", periods=30, freq="D").values,
-            precip=np.full(30, 1.0),  # Very low precip
-            pet=np.full(30, 8.0),  # High PET
+            precip=np.full(30, 1.0),
+            pet=np.full(30, 8.0),
         )
         result = run(params, forcing)
         assert np.all(result.fluxes.streamflow >= 0)
@@ -353,7 +267,7 @@ class TestEdgeCases:
 
 
 class TestNumericalStability:
-    """Tests for numerical stability of Numba implementations."""
+    """Tests for numerical stability."""
 
     def test_long_simulation_stability(self) -> None:
         """Long simulation maintains numerical stability."""
@@ -367,21 +281,18 @@ class TestNumericalStability:
         )
         result = run(params, forcing)
 
-        # All outputs should be finite
         assert np.all(np.isfinite(result.fluxes.streamflow))
         assert np.all(np.isfinite(result.fluxes.production_store))
         assert np.all(np.isfinite(result.fluxes.routing_store))
         assert np.all(np.isfinite(result.fluxes.exponential_store))
-
-        # Streamflow should be non-negative
         assert np.all(result.fluxes.streamflow >= 0)
 
     def test_extreme_parameter_combinations(self) -> None:
         """Various extreme parameter combinations produce valid outputs."""
         param_sets = [
-            Parameters(x1=100, x2=-5, x3=20, x4=0.5, x5=0.5, x6=2),  # Small stores
-            Parameters(x1=2500, x2=5, x3=500, x4=15, x5=0.5, x6=60),  # Large stores
-            Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5),  # No exchange
+            Parameters(x1=100, x2=-5, x3=20, x4=0.5, x5=0.5, x6=2),
+            Parameters(x1=2500, x2=5, x3=500, x4=15, x5=0.5, x6=60),
+            Parameters(x1=350, x2=0, x3=90, x4=1.7, x5=0, x6=5),
         ]
 
         forcing = ForcingData(

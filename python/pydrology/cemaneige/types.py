@@ -85,7 +85,7 @@ class CemaNeigeSingleLayerState:
         )
 
     def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:
-        """Convert state to a 1D array for Numba.
+        """Convert state to a 1D array for array protocol.
 
         Layout: [g, etg, gthreshold, glocalmax] (4 elements)
         """
@@ -150,7 +150,7 @@ class CemaNeigeMultiLayerState:
         return self.layer_states[index]
 
     def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:
-        """Convert multi-layer state to a 2D array for Numba.
+        """Convert multi-layer state to a 2D array for array protocol.
 
         Shape: (n_layers, 4) where columns are [g, etg, gthreshold, glocalmax]
         """

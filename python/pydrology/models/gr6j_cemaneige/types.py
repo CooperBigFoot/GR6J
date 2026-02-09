@@ -48,7 +48,7 @@ class Parameters:
     kf: float  # Degree-day melt factor [mm/°C/day]
 
     def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:
-        """Convert parameters to a 1D array for Numba.
+        """Convert parameters to a 1D array for array protocol.
 
         Layout: [x1, x2, x3, x4, x5, x6, ctg, kf] (8 elements)
         """
@@ -153,7 +153,7 @@ class State:
         )
 
     def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:
-        """Convert state to a 1D array for Numba.
+        """Convert state to a 1D array for array protocol.
 
         Layout:
             [0]: production_store

@@ -13,8 +13,6 @@ Required model exports:
     - run: function - Execute model over timeseries
     - step: function - Execute single timestep
 
-Optional model exports:
-    - HAS_NUMBA: bool - Whether Numba-optimized kernels are available (default True)
 """
 
 import logging
@@ -177,7 +175,6 @@ def get_model_info(name: str) -> dict[str, object]:
             - param_names: tuple[str, ...] - Parameter names in order
             - default_bounds: tuple[tuple[float, float], ...] - Parameter bounds
             - state_size: int - Number of state elements
-            - has_numba: bool - Whether Numba acceleration is available
 
     Raises:
         KeyError: If the model name is not registered.
@@ -189,13 +186,9 @@ def get_model_info(name: str) -> dict[str, object]:
     """
     module = get_model(name)
 
-    # Get has_numba, defaulting to True if not specified
-    has_numba = getattr(module, "HAS_NUMBA", True)
-
     return {
         "param_names": module.PARAM_NAMES,
         "default_bounds": module.DEFAULT_BOUNDS,
         "state_size": module.STATE_SIZE,
-        "has_numba": has_numba,
         "supported_resolutions": module.SUPPORTED_RESOLUTIONS,
     }

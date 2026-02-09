@@ -4,18 +4,11 @@ Pure functions implementing the mathematical equations for each CemaNeige model 
 All inputs and outputs are floats. These functions correspond to sections in CEMANEIGE.md.
 """
 
-# ruff: noqa: I001
-# Import order matters: _compat must patch numpy before numba import
-import pydrology._compat  # noqa: F401
-from numba import njit
-
-# Constants inlined for Numba compatibility (must be local to njit functions)
-# Original source: .constants module
 _T_MELT: float = 0.0  # Melt threshold [°C]
 _MIN_SPEED: float = 0.1  # Minimum melt fraction [-]
 
 
-@njit(cache=True)
+
 def compute_solid_fraction(temp: float) -> float:
     """Compute fraction of precipitation falling as snow using USACE formula.
 
@@ -38,7 +31,7 @@ def compute_solid_fraction(temp: float) -> float:
     return (3.0 - temp) / 4.0
 
 
-@njit(cache=True)
+
 def partition_precipitation(precip: float, solid_fraction: float) -> tuple[float, float]:
     """Split precipitation into liquid and solid components.
 
@@ -59,7 +52,7 @@ def partition_precipitation(precip: float, solid_fraction: float) -> tuple[float
     return pliq, psol
 
 
-@njit(cache=True)
+
 def update_thermal_state(etg: float, temp: float, ctg: float) -> float:
     """Update snow pack thermal state using exponential smoothing.
 
@@ -85,7 +78,7 @@ def update_thermal_state(etg: float, temp: float, ctg: float) -> float:
     return min(new_etg, 0.0)
 
 
-@njit(cache=True)
+
 def compute_potential_melt(etg: float, temp: float, kf: float, snow_pack: float) -> float:
     """Compute potential snow melt using degree-day method.
 
@@ -113,7 +106,7 @@ def compute_potential_melt(etg: float, temp: float, kf: float, snow_pack: float)
     return 0.0
 
 
-@njit(cache=True)
+
 def compute_gratio(snow_pack: float, gthreshold: float) -> float:
     """Compute snow cover fraction (Gratio).
 
@@ -143,7 +136,7 @@ def compute_gratio(snow_pack: float, gthreshold: float) -> float:
     return snow_pack / gthreshold
 
 
-@njit(cache=True)
+
 def compute_actual_melt(potential_melt: float, gratio: float) -> float:
     """Compute actual snow melt modulated by snow cover fraction.
 

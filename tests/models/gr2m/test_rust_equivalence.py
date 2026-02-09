@@ -91,7 +91,7 @@ class TestRunStepConsistency:
 
 
 class TestEdgeCases:
-    """Tests for edge cases in Numba implementation."""
+    """Tests for edge cases in GR2M implementation."""
 
     def test_zero_precipitation(self) -> None:
         """Handles zero precipitation correctly."""
@@ -157,7 +157,7 @@ class TestEdgeCases:
 
 
 class TestNumericalStability:
-    """Tests for numerical stability of Numba implementations."""
+    """Tests for numerical stability."""
 
     def test_long_simulation_stability(self) -> None:
         """Long simulation maintains numerical stability."""

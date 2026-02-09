@@ -4,11 +4,7 @@ Pure functions implementing the mathematical equations for each GR6J model compo
 All inputs and outputs are floats. These functions correspond to sections in MODEL_DEFINITION.md.
 """
 
-# ruff: noqa: I001
-# Import order matters: _compat must patch numpy before numba import
-import pydrology._compat  # noqa: F401
 import numpy as np
-from numba import njit
 
 from .constants import (
     EXP_BRANCH_THRESHOLD,
@@ -18,7 +14,7 @@ from .constants import (
 )
 
 
-@njit(cache=True)
+
 def production_store_update(
     precip: float, pet: float, production_store: float, x1: float
 ) -> tuple[float, float, float, float]:
@@ -85,7 +81,7 @@ def production_store_update(
     return new_store, actual_et, net_rainfall_pn, effective_rainfall_pr
 
 
-@njit(cache=True)
+
 def percolation(production_store: float, x1: float) -> tuple[float, float]:
     """Compute percolation from the production store.
 
@@ -115,7 +111,7 @@ def percolation(production_store: float, x1: float) -> tuple[float, float]:
     return new_store, percolation_amount
 
 
-@njit(cache=True)
+
 def groundwater_exchange(routing_store: float, x2: float, x3: float, x5: float) -> float:
     """Compute potential groundwater exchange.
 
@@ -134,7 +130,7 @@ def groundwater_exchange(routing_store: float, x2: float, x3: float, x5: float) 
     return x2 * (routing_store / x3 - x5)
 
 
-@njit(cache=True)
+
 def routing_store_update(
     routing_store: float, uh1_output: float, exchange: float, x3: float
 ) -> tuple[float, float, float]:
@@ -183,7 +179,7 @@ def routing_store_update(
     return new_store, outflow_qr, actual_exchange
 
 
-@njit(cache=True)
+
 def exponential_store_update(exp_store: float, uh1_output: float, exchange: float, x6: float) -> tuple[float, float]:
     """Update the exponential store and compute outflow.
 
@@ -207,7 +203,7 @@ def exponential_store_update(exp_store: float, uh1_output: float, exchange: floa
     store = exp_store + uh1_output + exchange
 
     # Scaled store level with numerical safeguard
-    # Using max/min instead of np.clip for numba compatibility
+    # Using max/min instead of np.clip
     ar = max(-MAX_EXP_ARG, min(store / x6, MAX_EXP_ARG))
 
     # Compute outflow using branch equations for numerical stability
@@ -227,7 +223,7 @@ def exponential_store_update(exp_store: float, uh1_output: float, exchange: floa
     return new_store, outflow_qrexp
 
 
-@njit(cache=True)
+
 def direct_branch(uh2_output: float, exchange: float) -> tuple[float, float]:
     """Compute direct branch outflow.
 

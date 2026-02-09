@@ -6,11 +6,7 @@ in the GR6J rainfall-runoff model for temporal distribution of effective rainfal
 UH1 is faster (length NH=20 days), UH2 is slower (length 2*NH=40 days).
 """
 
-# ruff: noqa: I001
-# Import order matters: _compat must patch numpy before numba import
-import pydrology._compat  # noqa: F401
 import numpy as np
-from numba import njit
 
 from .constants import D, NH
 
@@ -66,7 +62,7 @@ def compute_uh_ordinates(x4: float) -> tuple[np.ndarray, np.ndarray]:
     return uh1_ordinates, uh2_ordinates
 
 
-@njit(cache=True)
+
 def _ss1(i: float, x4: float) -> float:
     """Compute UH1 S-curve value at position i.
 
@@ -85,7 +81,7 @@ def _ss1(i: float, x4: float) -> float:
         return 1.0
 
 
-@njit(cache=True)
+
 def _ss2(i: float, x4: float) -> float:
     """Compute UH2 S-curve value at position i.
 
@@ -106,7 +102,7 @@ def _ss2(i: float, x4: float) -> float:
         return 1.0
 
 
-@njit(cache=True)
+
 def convolve_uh(uh_states: np.ndarray, pr_input: float, uh_ordinates: np.ndarray) -> tuple[np.ndarray, float]:
     """Perform unit hydrograph convolution for one time step.
 

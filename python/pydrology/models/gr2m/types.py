@@ -28,7 +28,7 @@ class Parameters:
     x2: float  # Groundwater exchange coefficient [-]
 
     def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:
-        """Convert parameters to a 1D array for Numba.
+        """Convert parameters to a 1D array for array protocol.
 
         Layout: [x1, x2] (2 elements)
         """
@@ -80,7 +80,7 @@ class State:
         )
 
     def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:
-        """Convert state to a 1D array for Numba.
+        """Convert state to a 1D array for array protocol.
 
         Layout: [production_store, routing_store]
         Total: 2 elements

@@ -38,7 +38,7 @@ class Parameters:
     x6: float  # Exponential store scale parameter [mm]
 
     def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:
-        """Convert parameters to a 1D array for Numba.
+        """Convert parameters to a 1D array for array protocol.
 
         Layout: [x1, x2, x3, x4, x5, x6] (6 elements)
         """
@@ -106,7 +106,7 @@ class State:
         )
 
     def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:
-        """Convert state to a 1D array for Numba.
+        """Convert state to a 1D array for array protocol.
 
         Layout: [production_store, routing_store, exponential_store, uh1_states[0:20], uh2_states[0:40]]
         Total: 63 elements

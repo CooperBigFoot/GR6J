@@ -49,7 +49,7 @@ class Parameters:
     maxbas: float
 
     def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:
-        """Convert parameters to 1D array for Numba."""
+        """Convert parameters to 1D array for array protocol."""
         arr = np.array(
             [
                 self.tt,
@@ -143,7 +143,7 @@ class State:
         )
 
     def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:
-        """Convert state to 1D array for Numba.
+        """Convert state to 1D array for array protocol.
 
         Layout: [zone_states.flatten(), upper_zone, lower_zone, routing_buffer]
         """
