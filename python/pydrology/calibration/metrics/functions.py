@@ -39,8 +39,8 @@ def log_nse(observed: ArrayLike, simulated: ArrayLike) -> float:
     sim = np.asarray(simulated)
 
     # Add small constant to avoid log(0)
-    log_obs = np.log(obs + 1e-6)
-    log_sim = np.log(sim + 1e-6)
+    log_obs = np.log(obs + 0.01)
+    log_sim = np.log(sim + 0.01)
 
     return nse(log_obs, log_sim)
 
