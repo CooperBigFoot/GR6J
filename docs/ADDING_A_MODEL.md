@@ -878,14 +878,50 @@ ALL_MODELS: list[str] = ["gr2m", "gr6j", "hbv_light", "gr6j_cemaneige", "<model>
 ### 7.4 Verification commands
 
 Run in order. Every command MUST pass before the next.
+This is the same protocol as `MODEL_CHECKLIST.md` Section 4.
 
 ```bash
-cargo test --workspace                    # All Rust tests
-uv run maturin develop                    # Build extension
-uv run python -c "from pydrology._core.<model> import <model>_run"  # Import check
-uv run python -m pytest tests/models/<model>/                       # Model tests
-uv run python -m pytest tests/test_model_conformance.py             # Conformance
-uv run python -m pytest                                             # Full suite
+# 1. Rust compiles and all Rust tests pass
+cargo test --workspace
+
+# 2. Clippy passes with no warnings
+cargo clippy --workspace
+
+# 3. Python extension builds
+uv run maturin develop
+
+# 4. Rust-level run binding import works
+uv run python -c "from pydrology._core.<model> import <model>_run"
+
+# 5. Rust-level step binding import works
+uv run python -c "from pydrology._core.<model> import <model>_step"
+
+# 6. Python shim run/step import works
+uv run python -c "from pydrology.models.<model> import run, step"
+
+# 7. Python shim types import works
+uv run python -c "from pydrology.models.<model> import Parameters, State"
+
+# 8. Model appears in registry
+uv run python -c "from pydrology import registry; assert '<model>' in registry.list_models()"
+
+# 9. Registry info is populated
+uv run python -c "from pydrology import registry; info = registry.get_model_info('<model>'); print(info)"
+
+# 10. Model-specific tests pass
+uv run python -m pytest tests/models/<model>/ -v
+
+# 11. Conformance suite passes
+uv run python -m pytest tests/test_model_conformance.py -v
+
+# 12. Registry tests pass
+uv run python -m pytest tests/test_registry.py -v
+
+# 13. Array contiguity tests pass
+uv run python -m pytest tests/models/test_array_contiguity.py -v
+
+# 14. Full test suite passes
+uv run python -m pytest -x
 ```
 
 ---
