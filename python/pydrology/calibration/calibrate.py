@@ -8,13 +8,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from types import ModuleType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
 from pydrology.registry import get_model
 from pydrology.types import Catchment, ForcingData
 
+from .aggregation import AggregationContext, aggregate_array, build_aggregation_context
 from .metrics import get_metric, validate_objectives
 from .types import ObservedData, Solution
 
@@ -89,6 +90,44 @@ def _validate_warmup(warmup: int, forcing_length: int, observed_length: int) -> 
         raise ValueError(msg)
 
 
+def _validate_aggregation(
+    observed: ObservedData,
+    forcing: ForcingData,
+    observed_aggregation: Literal["sum", "mean"] | None,
+) -> None:
+    """Validate cross-resolution aggregation settings.
+
+    Args:
+        observed: Observed data with resolution field.
+        forcing: Forcing data with resolution field.
+        observed_aggregation: Aggregation method, required when resolutions differ.
+
+    Raises:
+        ValueError: If aggregation settings are inconsistent with resolutions.
+    """
+    if observed.resolution < forcing.resolution:
+        msg = (
+            f"Observed resolution '{observed.resolution.value}' is finer than "
+            f"forcing resolution '{forcing.resolution.value}'; cannot disaggregate"
+        )
+        raise ValueError(msg)
+
+    if observed.resolution == forcing.resolution:
+        if observed_aggregation is not None:
+            msg = "observed_aggregation must be None when observed and forcing have the same resolution"
+            raise ValueError(msg)
+        return
+
+    # Cross-resolution: observed is coarser than forcing
+    if observed_aggregation is None:
+        msg = (
+            "observed_aggregation is required when observed resolution "
+            f"('{observed.resolution.value}') is coarser than forcing "
+            f"resolution ('{forcing.resolution.value}')"
+        )
+        raise ValueError(msg)
+
+
 def calibrate(
     model: str,
     forcing: ForcingData,
@@ -105,6 +144,7 @@ def calibrate(
     progress: bool = True,
     callback: Callable | None = None,
     n_workers: int = 1,
+    observed_aggregation: Literal["sum", "mean"] | None = None,
 ) -> Solution | list[Solution]:
     """Calibrate model parameters using evolutionary optimization.
 
@@ -137,6 +177,10 @@ def calibrate(
             Return True to stop early.
         n_workers: Number of parallel workers for evaluation. Use 1 for sequential
             execution (default), -1 for all CPU cores, or any positive integer.
+        observed_aggregation: Aggregation method for cross-resolution calibration.
+            Required when observed data is at coarser resolution than forcing
+            (e.g., monthly obs vs daily forcing). Use "sum" for volumetric totals
+            or "mean" for daily averages. Must be None when resolutions match.
 
     Returns:
         Single-objective: Solution with best parameters and score.
@@ -182,7 +226,21 @@ def calibrate(
     # Validate and normalize inputs
     objectives_dict = validate_objectives(objectives)
     resolved_bounds = _validate_bounds(bounds, use_default_bounds, model_module)
-    _validate_warmup(warmup, len(forcing), len(observed))
+    _validate_aggregation(observed, forcing, observed_aggregation)
+
+    # Build aggregation context for cross-resolution calibration
+    is_cross_resolution = observed.resolution > forcing.resolution
+    agg_ctx: AggregationContext | None = None
+    if is_cross_resolution:
+        agg_ctx = build_aggregation_context(forcing.time[warmup:], observed.resolution)
+        if agg_ctx.n_groups != len(observed):
+            msg = (
+                f"Number of complete aggregation periods ({agg_ctx.n_groups}) does not match "
+                f"observed length ({len(observed)})"
+            )
+            raise ValueError(msg)
+    else:
+        _validate_warmup(warmup, len(forcing), len(observed))
 
     # Build parameter order and bounds arrays
     param_names: list[str] = list(model_module.PARAM_NAMES)
@@ -222,6 +280,8 @@ def calibrate(
         params = model_module.Parameters.from_array(x)
         output = run_model(params)
         sim = output.streamflow[warmup:]
+        if agg_ctx is not None:
+            sim = aggregate_array(sim, agg_ctx, observed_aggregation)
         obs = observed.streamflow
         score = metric_funcs[0](obs, sim)
         return -score if negate_flags[0] else score
@@ -231,6 +291,8 @@ def calibrate(
         params = model_module.Parameters.from_array(x)
         output = run_model(params)
         sim = output.streamflow[warmup:]
+        if agg_ctx is not None:
+            sim = aggregate_array(sim, agg_ctx, observed_aggregation)
         obs = observed.streamflow
         scores = []
         for func, negate in zip(metric_funcs, negate_flags, strict=True):
@@ -273,6 +335,8 @@ def calibrate(
         # Compute actual (non-negated) scores for output
         output = run_model(best_params)
         sim = output.streamflow[warmup:]
+        if agg_ctx is not None:
+            sim = aggregate_array(sim, agg_ctx, observed_aggregation)
         obs = observed.streamflow
         score_dict = {name: float(func(obs, sim)) for name, func in zip(objective_names, metric_funcs, strict=True)}
 
@@ -315,6 +379,8 @@ def calibrate(
             # Compute actual (non-negated) scores for output
             output = run_model(params)
             sim = output.streamflow[warmup:]
+            if agg_ctx is not None:
+                sim = aggregate_array(sim, agg_ctx, observed_aggregation)
             obs = observed.streamflow
             score_dict = {name: float(func(obs, sim)) for name, func in zip(objective_names, metric_funcs, strict=True)}
 

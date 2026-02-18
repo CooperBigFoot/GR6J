@@ -61,7 +61,7 @@ print(output.to_dataframe())   # pandas DataFrame
 ## Calibration
 
 ```python
-from pydrology import calibrate, ObservedData, list_metrics
+from pydrology import calibrate, ObservedData, Resolution, list_metrics
 
 # Available metrics: nse, kge, log_nse, rmse, mae, pbias
 print(list_metrics())
@@ -83,6 +83,21 @@ print(result.parameters, result.score)
 
 # Multi-objective returns Pareto front
 pareto = calibrate(..., objectives=["nse", "log_nse"])
+
+# Cross-resolution: monthly observed vs daily forcing
+monthly_obs = ObservedData(
+    time=monthly_dates,
+    streamflow=monthly_flows,
+    resolution=Resolution.monthly,
+)
+result = calibrate(
+    model="gr6j",
+    forcing=daily_forcing,
+    observed=monthly_obs,
+    objectives=["nse"],
+    use_default_bounds=True,
+    observed_aggregation="sum",  # or "mean"
+)
 ```
 
 ## Resolution Support

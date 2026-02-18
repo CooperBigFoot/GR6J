@@ -54,6 +54,28 @@ _RESOLUTION_TOLERANCES: dict[Resolution, tuple[float, float]] = {
 }
 
 
+def validate_time_spacing(time: np.ndarray, resolution: Resolution) -> None:
+    """Raise ValueError if median time gap doesn't match resolution.
+
+    Args:
+        time: Datetime64 array of timesteps.
+        resolution: Expected temporal resolution.
+
+    Raises:
+        ValueError: If time spacing doesn't match resolution.
+    """
+    if len(time) <= 1:
+        return
+    median_gap_hours = float(np.median(np.diff(time)) / np.timedelta64(1, "h"))
+    min_hours, max_hours = _RESOLUTION_TOLERANCES[resolution]
+    if not (min_hours <= median_gap_hours <= max_hours):
+        msg = (
+            f"Time spacing (median {median_gap_hours:.1f} hours) does not match "
+            f"resolution '{resolution.value}' (expected {min_hours}-{max_hours} hours)"
+        )
+        raise ValueError(msg)
+
+
 class ForcingData(BaseModel):
     """Validated forcing data for the GR6J model.
 
@@ -143,16 +165,7 @@ class ForcingData(BaseModel):
 
     @model_validator(mode="after")
     def validate_time_resolution(self) -> ForcingData:
-        if len(self.time) <= 1:
-            return self
-        median_gap_hours = float(np.median(np.diff(self.time)) / np.timedelta64(1, "h"))
-        min_hours, max_hours = _RESOLUTION_TOLERANCES[self.resolution]
-        if not (min_hours <= median_gap_hours <= max_hours):
-            msg = (
-                f"Time spacing (median {median_gap_hours:.1f} hours) does not match "
-                f"resolution '{self.resolution.value}' (expected {min_hours}-{max_hours} hours)"
-            )
-            raise ValueError(msg)
+        validate_time_spacing(self.time, self.resolution)
         return self
 
     def __len__(self) -> int:

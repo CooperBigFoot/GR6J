@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 from pydrology import Parameters
 from pydrology.calibration.types import ObservedData, Solution
+from pydrology.types import Resolution
 
 
 class TestObservedData:
@@ -67,6 +68,28 @@ class TestObservedData:
         streamflow = np.array([1.0, 2.0, 3.0, 4.0])
         obs = ObservedData(time=time, streamflow=streamflow)
         assert len(obs) == 4
+
+    def test_resolution_field_default_daily(self) -> None:
+        """Default resolution should be daily."""
+        time = np.array(["2020-01-01", "2020-01-02", "2020-01-03"], dtype="datetime64")
+        streamflow = np.array([1.0, 2.0, 3.0])
+        obs = ObservedData(time=time, streamflow=streamflow)
+        assert obs.resolution == Resolution.daily
+
+    def test_resolution_monthly_valid(self) -> None:
+        """Monthly resolution with monthly-spaced times should pass."""
+        time = np.array(["2020-01-01", "2020-02-01", "2020-03-01"], dtype="datetime64")
+        streamflow = np.array([10.0, 20.0, 30.0])
+        obs = ObservedData(time=time, streamflow=streamflow, resolution=Resolution.monthly)
+        assert obs.resolution == Resolution.monthly
+        assert len(obs) == 3
+
+    def test_resolution_mismatch_raises(self) -> None:
+        """Monthly resolution with daily-spaced times should raise."""
+        time = np.array(["2020-01-01", "2020-01-02", "2020-01-03"], dtype="datetime64")
+        streamflow = np.array([1.0, 2.0, 3.0])
+        with pytest.raises(ValidationError, match="does not match"):
+            ObservedData(time=time, streamflow=streamflow, resolution=Resolution.monthly)
 
 
 class TestSolution:

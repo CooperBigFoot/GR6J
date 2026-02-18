@@ -1402,14 +1402,15 @@ For multi-objective optimization, the progress bar shows the current Pareto fron
 
 ### ObservedData
 
-Container for observed streamflow matching the post-warmup period of forcing data.
+Container for observed streamflow used during calibration.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `time` | `np.ndarray` (datetime64) | Timestamp for each observation |
-| `streamflow` | `np.ndarray` (float64) | Observed streamflow [mm/day] |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `time` | `np.ndarray` (datetime64) | — | Timestamp for each observation |
+| `streamflow` | `np.ndarray` (float64) | — | Observed streamflow [mm/timestep or mm/day] |
+| `resolution` | `Resolution` | `Resolution.daily` | Temporal resolution of observations |
 
-**Validation:** Same rules as `ForcingData` - 1D arrays, no NaN, matching lengths.
+**Validation:** 1D arrays, no NaN, matching lengths. Time spacing must match declared resolution.
 
 ### Available Metrics
 
@@ -1457,7 +1458,9 @@ The warmup period allows model stores to reach dynamic equilibrium before evalua
 | Cold/snow-dominated | 730 days (2 years) |
 | Highly seasonal | 730+ days |
 
-**Important:** `len(observed) == len(forcing) - warmup` must hold.
+**Same-resolution calibration:** `len(observed) == len(forcing) - warmup` must hold.
+
+**Cross-resolution calibration:** The number of complete aggregation periods in the post-warmup forcing must equal `len(observed)`. See [Cross-Resolution Calibration](#cross-resolution-calibration) below.
 
 **Note:** The `observed` data must contain **only** the post-warmup period. If your observed data includes the warmup period (e.g., same length as forcing), you must slice it before passing to `calibrate()`:
 
@@ -1480,6 +1483,57 @@ result = calibrate(
 ```
 
 Passing observed data that includes the warmup period will raise a `ValueError`.
+
+### Cross-Resolution Calibration
+
+When only monthly observed streamflow is available, you can calibrate daily-resolution models by aggregating simulated daily output to monthly before comparing against observations. The model still runs at daily timestep — only the evaluation uses monthly data.
+
+```python
+import numpy as np
+from pydrology import ForcingData, Resolution, ObservedData, calibrate
+
+# Daily forcing (including warmup)
+forcing = ForcingData(
+    time=np.arange("2019-01-01", "2021-01-01", dtype="datetime64[D]"),
+    precip=precip_daily,
+    pet=pet_daily,
+)
+
+# Monthly observed streamflow (post-warmup only)
+observed = ObservedData(
+    time=np.array([
+        "2020-01-01", "2020-02-01", "2020-03-01",
+        "2020-04-01", "2020-05-01", "2020-06-01",
+        "2020-07-01", "2020-08-01", "2020-09-01",
+        "2020-10-01", "2020-11-01", "2020-12-01",
+    ], dtype="datetime64"),
+    streamflow=monthly_observed,        # mm/month totals
+    resolution=Resolution.monthly,      # Declare monthly resolution
+)
+
+result = calibrate(
+    model="gr6j",
+    forcing=forcing,
+    observed=observed,
+    objectives=["nse"],
+    use_default_bounds=True,
+    warmup=365,
+    observed_aggregation="sum",         # Aggregate daily sim to monthly sums
+)
+```
+
+The `observed_aggregation` parameter controls how daily simulated values are aggregated:
+
+| Value | Behaviour | Use when |
+|-------|-----------|----------|
+| `"sum"` | Sum daily values per month | Observed data is volumetric (mm/month) |
+| `"mean"` | Average daily values per month | Observed data is mean daily flow (mm/day) |
+
+**Validation rules:**
+- `observed_aggregation` is **required** when `observed.resolution` is coarser than `forcing.resolution`
+- `observed_aggregation` must be `None` (or omitted) when resolutions match
+- Observed resolution finer than forcing resolution raises an error (cannot disaggregate)
+- Partial first/last months in the post-warmup period are automatically discarded
 
 ### Progress Monitoring
 

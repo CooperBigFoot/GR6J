@@ -9,6 +9,7 @@ from pydrology.calibration.calibrate import (
     _validate_warmup,
 )
 from pydrology.registry import get_model
+from pydrology.types import Resolution
 
 
 class TestValidateBounds:
@@ -412,3 +413,196 @@ class TestCalibrate:
         assert isinstance(result, list)
         assert len(result) > 0
         assert all(isinstance(s, Solution) for s in result)
+
+    def test_monthly_observed_daily_forcing_sum(self) -> None:
+        """End-to-end calibration with monthly obs using sum aggregation."""
+        # Forcing: 2020-01-01 to 2020-07-31 (213 days)
+        # Warmup: 31 days (all of January)
+        # Post-warmup: 2020-02-01 to 2020-07-31 (182 days)
+        # Complete months in post-warmup: Feb(29) + Mar(31) + Apr(30) + May(31) + Jun(30) + Jul(31) = 6 months
+        n_days = 213
+        rng = np.random.default_rng(42)
+        forcing = ForcingData(
+            time=np.datetime64("2020-01-01") + np.arange(n_days),
+            precip=rng.exponential(5.0, n_days),
+            pet=np.full(n_days, 3.5),
+        )
+
+        # Monthly observed: 6 months (Feb-Jul 2020)
+        monthly_time = np.array(
+            [
+                "2020-02-01",
+                "2020-03-01",
+                "2020-04-01",
+                "2020-05-01",
+                "2020-06-01",
+                "2020-07-01",
+            ],
+            dtype="datetime64",
+        )
+        observed = ObservedData(
+            time=monthly_time,
+            streamflow=rng.uniform(30.0, 150.0, 6),
+            resolution=Resolution.monthly,
+        )
+
+        result = calibrate(
+            model="gr6j",
+            forcing=forcing,
+            observed=observed,
+            objectives=["nse"],
+            use_default_bounds=True,
+            warmup=31,
+            population_size=10,
+            generations=3,
+            seed=42,
+            progress=False,
+            observed_aggregation="sum",
+        )
+        assert isinstance(result, Solution)
+        assert result.model == "gr6j"
+        assert "nse" in result.score
+
+    def test_monthly_observed_daily_forcing_mean(self) -> None:
+        """End-to-end calibration with monthly obs using mean aggregation."""
+        n_days = 213
+        rng = np.random.default_rng(42)
+        forcing = ForcingData(
+            time=np.datetime64("2020-01-01") + np.arange(n_days),
+            precip=rng.exponential(5.0, n_days),
+            pet=np.full(n_days, 3.5),
+        )
+
+        monthly_time = np.array(
+            [
+                "2020-02-01",
+                "2020-03-01",
+                "2020-04-01",
+                "2020-05-01",
+                "2020-06-01",
+                "2020-07-01",
+            ],
+            dtype="datetime64",
+        )
+        observed = ObservedData(
+            time=monthly_time,
+            streamflow=rng.uniform(1.0, 5.0, 6),
+            resolution=Resolution.monthly,
+        )
+
+        result = calibrate(
+            model="gr6j",
+            forcing=forcing,
+            observed=observed,
+            objectives=["nse"],
+            use_default_bounds=True,
+            warmup=31,
+            population_size=10,
+            generations=3,
+            seed=42,
+            progress=False,
+            observed_aggregation="mean",
+        )
+        assert isinstance(result, Solution)
+        assert "nse" in result.score
+
+    def test_aggregation_required_when_resolutions_differ(self) -> None:
+        """Missing observed_aggregation with different resolutions should raise."""
+        n_days = 213
+        rng = np.random.default_rng(42)
+        forcing = ForcingData(
+            time=np.datetime64("2020-01-01") + np.arange(n_days),
+            precip=rng.exponential(5.0, n_days),
+            pet=np.full(n_days, 3.5),
+        )
+
+        monthly_time = np.array(
+            [
+                "2020-02-01",
+                "2020-03-01",
+                "2020-04-01",
+                "2020-05-01",
+                "2020-06-01",
+                "2020-07-01",
+            ],
+            dtype="datetime64",
+        )
+        observed = ObservedData(
+            time=monthly_time,
+            streamflow=rng.uniform(1.0, 5.0, 6),
+            resolution=Resolution.monthly,
+        )
+
+        with pytest.raises(ValueError, match="observed_aggregation is required"):
+            calibrate(
+                model="gr6j",
+                forcing=forcing,
+                observed=observed,
+                objectives=["nse"],
+                use_default_bounds=True,
+                warmup=31,
+                population_size=10,
+                generations=3,
+                seed=42,
+                progress=False,
+                # observed_aggregation NOT set
+            )
+
+    def test_aggregation_rejected_when_same_resolution(
+        self,
+        simple_forcing: ForcingData,
+        simple_observed: ObservedData,
+        simple_bounds: dict[str, tuple[float, float]],
+    ) -> None:
+        """Setting observed_aggregation with same resolution should raise."""
+        with pytest.raises(ValueError, match="must be None"):
+            calibrate(
+                model="gr6j",
+                forcing=simple_forcing,
+                observed=simple_observed,
+                objectives=["nse"],
+                bounds=simple_bounds,
+                warmup=10,
+                population_size=10,
+                generations=3,
+                seed=42,
+                progress=False,
+                observed_aggregation="sum",
+            )
+
+    def test_finer_observed_than_forcing_raises(self) -> None:
+        """Daily observed vs monthly forcing should raise."""
+        # Create monthly forcing
+        monthly_time = np.array(
+            [
+                "2020-01-01",
+                "2020-02-01",
+                "2020-03-01",
+            ],
+            dtype="datetime64",
+        )
+        forcing = ForcingData(
+            time=monthly_time,
+            precip=np.array([100.0, 90.0, 110.0]),
+            pet=np.array([50.0, 55.0, 60.0]),
+            resolution=Resolution.monthly,
+        )
+
+        # Daily observed — finer than forcing
+        daily_time = np.array(["2020-01-01", "2020-01-02", "2020-01-03"], dtype="datetime64")
+        observed = ObservedData(
+            time=daily_time,
+            streamflow=np.array([1.0, 2.0, 3.0]),
+            resolution=Resolution.daily,
+        )
+
+        with pytest.raises(ValueError, match="cannot disaggregate"):
+            calibrate(
+                model="gr6j",
+                forcing=forcing,
+                observed=observed,
+                objectives=["nse"],
+                use_default_bounds=True,
+                warmup=0,
+                progress=False,
+            )

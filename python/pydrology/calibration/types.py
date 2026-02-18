@@ -11,6 +11,8 @@ from typing import Any
 import numpy as np
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+from pydrology.types import Resolution, validate_time_spacing
+
 
 class ObservedData(BaseModel):
     """Validated observed streamflow data for calibration.
@@ -27,6 +29,7 @@ class ObservedData(BaseModel):
 
     time: np.ndarray  # datetime64[ns]
     streamflow: np.ndarray  # [mm/day]
+    resolution: Resolution = Resolution.daily
 
     @field_validator("time", mode="before")
     @classmethod
@@ -57,6 +60,11 @@ class ObservedData(BaseModel):
         if len(self.time) != len(self.streamflow):
             msg = f"streamflow length {len(self.streamflow)} does not match time length {len(self.time)}"
             raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def validate_time_resolution(self) -> ObservedData:
+        validate_time_spacing(self.time, self.resolution)
         return self
 
     def __len__(self) -> int:
