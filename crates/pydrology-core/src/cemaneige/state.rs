@@ -22,6 +22,34 @@ impl State {
         Self { layer_states }
     }
 
+    /// Create initial state with per-band gthresholds from elevation data.
+    ///
+    /// Each band's gthreshold is scaled by the same precipitation gradient
+    /// applied to forcing, ensuring Gratio evolves proportionally.
+    pub fn initialize_per_band(
+        n_layers: usize,
+        mean_annual_solid_precip: f64,
+        layer_elevations: &[f64],
+        input_elevation: f64,
+        precip_gradient: f64,
+        use_linear: bool,
+    ) -> Self {
+        let layer_states = (0..n_layers)
+            .map(|i| {
+                let gt = crate::elevation::compute_band_gthreshold(
+                    GTHRESHOLD_FACTOR,
+                    mean_annual_solid_precip,
+                    input_elevation,
+                    layer_elevations[i],
+                    precip_gradient,
+                    use_linear,
+                );
+                [0.0, 0.0, gt, gt]
+            })
+            .collect();
+        Self { layer_states }
+    }
+
     pub fn n_layers(&self) -> usize {
         self.layer_states.len()
     }
@@ -141,5 +169,48 @@ mod tests {
 
         assert!(State::from_slice(&[]).is_err());
         assert!(State::from_slice(&[1.0, 2.0, 3.0]).is_err()); // not multiple of 4
+    }
+
+    #[test]
+    fn per_band_higher_elevation_higher_gthreshold() {
+        let elevs = [200.0, 600.0, 1000.0];
+        let s = State::initialize_per_band(3, 200.0, &elevs, 500.0, 0.00041, false);
+        assert!(s.layer_states[0][2] < s.layer_states[2][2],
+            "higher elevation band should have higher gthreshold");
+    }
+
+    #[test]
+    fn per_band_matches_uniform_at_same_elevation() {
+        let elevs = [500.0, 500.0, 500.0];
+        let s_per_band = State::initialize_per_band(3, 200.0, &elevs, 500.0, 0.00041, false);
+        let s_uniform = State::initialize(3, 200.0);
+        for i in 0..3 {
+            assert!((s_per_band.layer_states[i][2] - s_uniform.layer_states[i][2]).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn per_band_respects_cap() {
+        let elevs = [3000.0, 5000.0]; // 5000 capped at 4000
+        let s = State::initialize_per_band(2, 200.0, &elevs, 3000.0, 0.00041, false);
+        let gt_3000 = s.layer_states[0][2];
+        let gt_5000 = s.layer_states[1][2]; // capped at 4000
+        assert!(gt_5000 > gt_3000);
+        // With 4000-cap, the elevation diff for band 1 is only 1000m
+        let expected = 0.9 * 200.0 * (0.00041 * 1000.0_f64).exp();
+        assert!((gt_5000 - expected).abs() < 1e-6);
+    }
+
+    #[test]
+    fn per_band_linear_vs_exponential() {
+        let elevs = [200.0, 1500.0];
+        let s_exp = State::initialize_per_band(2, 200.0, &elevs, 500.0, 0.0004, false);
+        let s_lin = State::initialize_per_band(2, 200.0, &elevs, 500.0, 0.0004, true);
+        // Exponential and linear give different results for different elevations
+        assert!((s_exp.layer_states[1][2] - s_lin.layer_states[1][2]).abs() > 0.001);
+        // Both should be > base for the higher band
+        let base = 0.9 * 200.0;
+        assert!(s_exp.layer_states[1][2] > base);
+        assert!(s_lin.layer_states[1][2] > base);
     }
 }

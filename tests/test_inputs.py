@@ -7,7 +7,7 @@ for the input containers used by the GR6J model.
 import numpy as np
 import pytest
 from pydantic import ValidationError
-from pydrology import Catchment, ForcingData
+from pydrology import Catchment, ForcingData, PrecipGradientType
 
 
 def _make_dates(n: int, start: str = "2020-01-01") -> np.ndarray:
@@ -662,3 +662,96 @@ class TestForcingDataAggregate:
         assert len(annual) == 2
         # 12 months * 50mm = 600mm per year
         assert annual.precip[0] == pytest.approx(600.0, rel=1e-2)
+
+
+class TestPrecipGradientType:
+    """Tests for PrecipGradientType enum and Catchment integration."""
+
+    def test_default_is_exponential(self) -> None:
+        catchment = Catchment(mean_annual_solid_precip=150.0)
+        assert catchment.precip_gradient_type == PrecipGradientType.exponential
+
+    def test_linear_accepted(self) -> None:
+        catchment = Catchment(
+            mean_annual_solid_precip=150.0,
+            precip_gradient_type=PrecipGradientType.linear,
+        )
+        assert catchment.precip_gradient_type == PrecipGradientType.linear
+
+    def test_enum_values(self) -> None:
+        assert PrecipGradientType.exponential.value == "exponential"
+        assert PrecipGradientType.linear.value == "linear"
+
+
+class TestMultiLayerWarnings:
+    """Tests for multi-layer soft validation warnings."""
+
+    def _make_hypsometric(self, min_elev: float = 200.0, max_elev: float = 2000.0) -> np.ndarray:
+        return np.linspace(min_elev, max_elev, 101)
+
+    def test_warns_n_layers_exceeds_five(self) -> None:
+        with pytest.warns(UserWarning, match="exceeds the recommended maximum of 5"):
+            Catchment(
+                mean_annual_solid_precip=150.0,
+                hypsometric_curve=self._make_hypsometric(),
+                input_elevation=600.0,
+                n_layers=6,
+            )
+
+    def test_no_warning_five_layers(self) -> None:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            Catchment(
+                mean_annual_solid_precip=150.0,
+                hypsometric_curve=self._make_hypsometric(200.0, 800.0),
+                input_elevation=600.0,
+                n_layers=5,
+            )
+
+    def test_warns_precip_amplification_exceeds_2x(self) -> None:
+        # Large elevation range -> large amplification
+        with pytest.warns(UserWarning, match="amplification factor"):
+            Catchment(
+                mean_annual_solid_precip=150.0,
+                hypsometric_curve=self._make_hypsometric(200.0, 4000.0),
+                input_elevation=500.0,
+                n_layers=3,
+            )
+
+    def test_no_warning_small_elevation_range(self) -> None:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            Catchment(
+                mean_annual_solid_precip=150.0,
+                hypsometric_curve=self._make_hypsometric(400.0, 800.0),
+                input_elevation=600.0,
+                n_layers=3,
+            )
+
+    def test_amplification_warning_respects_custom_gradient(self) -> None:
+        # Small custom gradient -> no amplification warning even with big range
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            Catchment(
+                mean_annual_solid_precip=150.0,
+                hypsometric_curve=self._make_hypsometric(200.0, 3000.0),
+                input_elevation=500.0,
+                n_layers=3,
+                precip_gradient=0.0001,  # very small -> amplification < 2x
+            )
+
+    def test_amplification_warning_respects_elevation_cap(self) -> None:
+        # Above the cap, elevation differences don't increase amplification
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            # Input at 3800, max at 4200 -> both effectively capped near 4000
+            Catchment(
+                mean_annual_solid_precip=150.0,
+                hypsometric_curve=self._make_hypsometric(3800.0, 4200.0),
+                input_elevation=3800.0,
+                n_layers=2,
+            )

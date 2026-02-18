@@ -80,6 +80,7 @@ define_step_result! {
     temp_gradient=None,
     precip_gradient=None,
     mean_annual_solid_precip=0.0,
+    precip_gradient_type=None,
 ))]
 fn gr6j_cemaneige_run<'py>(
     py: Python<'py>,
@@ -97,6 +98,7 @@ fn gr6j_cemaneige_run<'py>(
     temp_gradient: Option<f64>,
     precip_gradient: Option<f64>,
     mean_annual_solid_precip: f64,
+    precip_gradient_type: Option<&str>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let p_slice = checked_slice(&params, 8, "params")?;
 
@@ -160,6 +162,17 @@ fn gr6j_cemaneige_run<'py>(
     let _ = uh1_ordinates;
     let _ = uh2_ordinates;
 
+    let use_linear = match precip_gradient_type {
+        Some("exponential") | None => false,
+        Some("linear") => true,
+        Some(other) => {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Unknown precip_gradient_type '{}'. Expected 'exponential' or 'linear'.",
+                other
+            )));
+        }
+    };
+
     let result = coupled::coupled_run(
         &gr6j_params,
         ctg,
@@ -176,6 +189,7 @@ fn gr6j_cemaneige_run<'py>(
         t_grad,
         p_grad,
         mean_annual_solid_precip,
+        use_linear,
     );
 
     // Build single output dict with all results
@@ -302,6 +316,7 @@ fn to_2d(flat: &[f64], rows: usize, cols: usize) -> Vec<Vec<f64>> {
     input_elevation=None,
     temp_gradient=None,
     precip_gradient=None,
+    precip_gradient_type=None,
 ))]
 fn gr6j_cemaneige_step<'py>(
     py: Python<'py>,
@@ -317,6 +332,7 @@ fn gr6j_cemaneige_step<'py>(
     input_elevation: Option<f64>,
     temp_gradient: Option<f64>,
     precip_gradient: Option<f64>,
+    precip_gradient_type: Option<&str>,
 ) -> PyResult<(Bound<'py, PyArray1<f64>>, Bound<'py, PyDict>)> {
     let p_slice = checked_slice(&params, 8, "params")?;
 
@@ -361,6 +377,17 @@ fn gr6j_cemaneige_step<'py>(
     let p_grad = precip_gradient.unwrap_or(pydrology_core::cemaneige::constants::GRAD_P_DEFAULT);
     let skip_extrap = input_elev.is_nan();
 
+    let use_linear = match precip_gradient_type {
+        Some("exponential") | None => false,
+        Some("linear") => true,
+        Some(other) => {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Unknown precip_gradient_type '{}'. Expected 'exponential' or 'linear'.",
+                other
+            )));
+        }
+    };
+
     let (new_gr6j, new_snow, snow_fluxes, gr6j_fluxes, _per_layer) = coupled::coupled_step(
         &gr6j_state,
         &snow_states,
@@ -378,6 +405,7 @@ fn gr6j_cemaneige_step<'py>(
         t_grad,
         p_grad,
         skip_extrap,
+        use_linear,
     );
 
     // Build new state array

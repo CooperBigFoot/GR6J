@@ -10,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 
 from .layers import extrapolate_precipitation, extrapolate_temperature
+from pydrology.utils.elevation import extrapolate_precipitation_linear
 from .processes import (
     compute_actual_melt,
     compute_gratio,
@@ -154,6 +155,7 @@ def cemaneige_multi_layer_step(
     input_elevation: float,
     temp_gradient: float | None = None,
     precip_gradient: float | None = None,
+    precip_gradient_type: str | None = None,
 ) -> tuple[CemaNeigeMultiLayerState, dict[str, float], list[dict[str, float]]]:
     """Execute one timestep of multi-layer CemaNeige.
 
@@ -193,9 +195,14 @@ def cemaneige_multi_layer_step(
         layer_precip_kwargs: dict[str, float] = {}
         if precip_gradient is not None:
             layer_precip_kwargs["gradient"] = precip_gradient
-        layer_precip = extrapolate_precipitation(
-            precip, input_elevation, float(layer_elevations[i]), **layer_precip_kwargs
-        )
+        if precip_gradient_type == "linear":
+            layer_precip = extrapolate_precipitation_linear(
+                precip, input_elevation, float(layer_elevations[i]), **layer_precip_kwargs
+            )
+        else:
+            layer_precip = extrapolate_precipitation(
+                precip, input_elevation, float(layer_elevations[i]), **layer_precip_kwargs
+            )
 
         # Run single-layer step for this band
         new_layer_state, layer_fluxes = cemaneige_step(

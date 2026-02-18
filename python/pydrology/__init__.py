@@ -18,7 +18,7 @@ from pydrology.cemaneige import (
 from pydrology.models.gr6j import Parameters, State, run, step
 from pydrology.outputs import GR6JFluxes, GR6JOutput, ModelOutput, SnowLayerOutputs, SnowOutput
 from pydrology.registry import get_model, get_model_info, list_models
-from pydrology.types import Catchment, ForcingData, Resolution
+from pydrology.types import Catchment, ForcingData, PrecipGradientType, Resolution
 
 __all__ = [
     "Catchment",
@@ -31,6 +31,7 @@ __all__ = [
     "ModelOutput",
     "ObservedData",
     "Parameters",
+    "PrecipGradientType",
     "Resolution",
     "SnowLayerOutputs",
     "SnowOutput",

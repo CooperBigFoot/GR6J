@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from pydrology.types import Resolution
+from pydrology.types import PrecipGradientType, Resolution
 
 if TYPE_CHECKING:
     from pydrology.outputs import ModelOutput
@@ -545,7 +545,14 @@ def run(
         zone_elevations, zone_fractions = derive_layers(catchment.hypsometric_curve, n_zones)
         input_elevation = catchment.input_elevation
         temp_gradient = catchment.temp_gradient if catchment.temp_gradient is not None else GRAD_T_DEFAULT
-        precip_gradient = catchment.precip_gradient if catchment.precip_gradient is not None else GRAD_P_DEFAULT
+        if catchment.precip_gradient is not None:
+            precip_gradient = catchment.precip_gradient
+        elif catchment.precip_gradient_type == PrecipGradientType.linear:
+            from pydrology.utils.elevation import GRAD_P_LINEAR_DEFAULT
+            precip_gradient = GRAD_P_LINEAR_DEFAULT
+        else:
+            precip_gradient = GRAD_P_DEFAULT
+        precip_gradient_type_str = catchment.precip_gradient_type.value
     else:
         n_zones = 1
         zone_elevations = None
@@ -553,6 +560,7 @@ def run(
         input_elevation = None
         temp_gradient = None
         precip_gradient = None
+        precip_gradient_type_str = None
 
     # Prepare arrays
     params_arr = np.ascontiguousarray(params, dtype=np.float64)
@@ -578,6 +586,7 @@ def run(
         input_elevation=input_elevation,
         temp_gradient=temp_gradient,
         precip_gradient=precip_gradient,
+        precip_gradient_type=precip_gradient_type_str,
     )
 
     # Build output object

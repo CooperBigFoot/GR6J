@@ -114,6 +114,7 @@ pub fn run(
     input_elevation: Option<f64>,
     temp_gradient: Option<f64>,
     precip_gradient: Option<f64>,
+    use_linear_precip_gradient: Option<bool>,
 ) -> (FluxesTimeseries, Option<ZoneOutputs>) {
     let n_timesteps = precip.len();
     assert_eq!(precip.len(), pet.len(), "precip and pet must have the same length");
@@ -140,6 +141,7 @@ pub fn run(
 
     let t_grad = temp_gradient.unwrap_or(elevation::GRAD_T_DEFAULT);
     let p_grad = precip_gradient.unwrap_or(elevation::GRAD_P_DEFAULT);
+    let use_linear = use_linear_precip_gradient.unwrap_or(false);
     let skip_extrapolation = input_elevation.is_none();
 
     // Initialize state
@@ -178,7 +180,11 @@ pub fn run(
                 let ie = input_elevation.unwrap();
                 (
                     elevation::extrapolate_temp(te, ie, zone_elevs[0], t_grad),
-                    elevation::extrapolate_precip_with_cap(p, ie, zone_elevs[0], p_grad, elevation::ELEV_CAP_PRECIP),
+                    if use_linear {
+                        elevation::extrapolate_precip_linear(p, ie, zone_elevs[0], p_grad)
+                    } else {
+                        elevation::extrapolate_precip_with_cap(p, ie, zone_elevs[0], p_grad, elevation::ELEV_CAP_PRECIP)
+                    },
                 )
             };
 
@@ -272,7 +278,11 @@ pub fn run(
                 let ie = input_elevation.unwrap();
                 (
                     elevation::extrapolate_temp(te, ie, zone_elevs[zone_idx], t_grad),
-                    elevation::extrapolate_precip_with_cap(p, ie, zone_elevs[zone_idx], p_grad, elevation::ELEV_CAP_PRECIP),
+                    if use_linear {
+                        elevation::extrapolate_precip_linear(p, ie, zone_elevs[zone_idx], p_grad)
+                    } else {
+                        elevation::extrapolate_precip_with_cap(p, ie, zone_elevs[zone_idx], p_grad, elevation::ELEV_CAP_PRECIP)
+                    },
                 )
             };
 
@@ -426,7 +436,7 @@ pub fn run_from_slices(
     temp: &[f64],
     initial_state: Option<&State>,
 ) -> FluxesTimeseries {
-    let (result, _) = run(params, precip, pet, temp, initial_state, 1, None, None, None, None, None);
+    let (result, _) = run(params, precip, pet, temp, initial_state, 1, None, None, None, None, None, None);
     result
 }
 
@@ -485,7 +495,7 @@ mod tests {
         let pet = [3.0, 4.0, 5.0, 2.0, 3.5];
         let temp = [5.0, 2.0, -5.0, 3.0, 1.0];
 
-        let (result, _) = run(&p, &precip, &pet, &temp, None, 1, None, None, None, None, None);
+        let (result, _) = run(&p, &precip, &pet, &temp, None, 1, None, None, None, None, None, None);
         assert_eq!(result.len(), 5);
     }
 
@@ -496,7 +506,7 @@ mod tests {
         let pet = [3.0, 4.0, 5.0, 2.0, 3.5, 4.0];
         let temp = [5.0, 2.0, -5.0, 3.0, 1.0, 10.0];
 
-        let (result, _) = run(&p, &precip, &pet, &temp, None, 1, None, None, None, None, None);
+        let (result, _) = run(&p, &precip, &pet, &temp, None, 1, None, None, None, None, None, None);
 
         for t in 0..result.len() {
             assert!(result.streamflow[t].is_finite(), "non-finite at t={t}");
@@ -512,14 +522,14 @@ mod tests {
         let temp = [5.0; 5];
 
         let (default_result, _) =
-            run(&p, &precip, &pet, &temp, None, 1, None, None, None, None, None);
+            run(&p, &precip, &pet, &temp, None, 1, None, None, None, None, None, None);
 
         let mut custom = State::initialize(&p, 1);
         custom.zone_states[0][2] = 200.0;
         custom.upper_zone = 50.0;
 
         let (custom_result, _) =
-            run(&p, &precip, &pet, &temp, Some(&custom), 1, None, None, None, None, None);
+            run(&p, &precip, &pet, &temp, Some(&custom), 1, None, None, None, None, None, None);
 
         // Different initial state -> different qgw
         assert_ne!(default_result.qgw[0], custom_result.qgw[0]);
@@ -529,7 +539,7 @@ mod tests {
     #[should_panic(expected = "same length")]
     fn run_panics_on_mismatched_lengths() {
         let p = test_params();
-        run(&p, &[10.0, 5.0], &[3.0], &[5.0, 2.0], None, 1, None, None, None, None, None);
+        run(&p, &[10.0, 5.0], &[3.0], &[5.0, 2.0], None, 1, None, None, None, None, None, None);
     }
 
     // -- Multi-zone tests --
@@ -545,7 +555,7 @@ mod tests {
 
         let (result, zone_out) = run(
             &p, &precip, &pet, &temp, None, 3,
-            Some(&elevs), Some(&fracs), Some(500.0), None, None,
+            Some(&elevs), Some(&fracs), Some(500.0), None, None, None,
         );
 
         assert_eq!(result.len(), 5);
@@ -567,7 +577,7 @@ mod tests {
 
         let (_, zone_out) = run(
             &p, &precip, &pet, &temp, None, 3,
-            Some(&elevs), Some(&fracs), Some(500.0), None, None,
+            Some(&elevs), Some(&fracs), Some(500.0), None, None, None,
         );
 
         let zo = zone_out.unwrap();
@@ -590,7 +600,7 @@ mod tests {
         let pet = [3.0; 3];
         let temp = [5.0; 3];
 
-        let (_, zone_out) = run(&p, &precip, &pet, &temp, None, 1, None, None, None, None, None);
+        let (_, zone_out) = run(&p, &precip, &pet, &temp, None, 1, None, None, None, None, None, None);
         assert!(zone_out.is_none());
     }
 
@@ -601,7 +611,7 @@ mod tests {
         let pet = [3.0, 4.0, 5.0, 2.0, 3.5, 4.0, 5.0, 2.0, 3.0, 4.0];
         let temp = [5.0, 2.0, -5.0, 3.0, 1.0, 10.0, -3.0, 7.0, 0.0, 15.0];
 
-        let (result, _) = run(&p, &precip, &pet, &temp, None, 1, None, None, None, None, None);
+        let (result, _) = run(&p, &precip, &pet, &temp, None, 1, None, None, None, None, None, None);
 
         for t in 0..result.len() {
             assert!(result.streamflow[t] >= 0.0, "negative streamflow at t={t}");

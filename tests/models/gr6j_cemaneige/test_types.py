@@ -224,3 +224,53 @@ class TestState:
         np.testing.assert_array_equal(restored.uh1_states, original.uh1_states)
         np.testing.assert_array_equal(restored.uh2_states, original.uh2_states)
         np.testing.assert_array_equal(restored.snow_layer_states, original.snow_layer_states)
+
+
+class TestPerBandGthreshold:
+    """Tests for per-band gthreshold initialization in State.initialize()."""
+
+    def _make_catchment(self, n_layers: int = 5, **kwargs) -> Catchment:
+        defaults = {
+            "mean_annual_solid_precip": 200.0,
+            "hypsometric_curve": np.linspace(200.0, 2000.0, 101),
+            "input_elevation": 600.0,
+            "n_layers": n_layers,
+        }
+        defaults.update(kwargs)
+        return Catchment(**defaults)
+
+    def test_multi_layer_per_band_gthreshold_varies(self) -> None:
+        catchment = self._make_catchment()
+        params = Parameters(x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0, ctg=0.97, kf=2.5)
+        state = State.initialize(params, catchment)
+        gthresholds = state.snow_layer_states[:, 2]
+        # Should not all be equal
+        assert not np.allclose(gthresholds, gthresholds[0])
+        # Should increase with layer index (elevations increase)
+        for i in range(len(gthresholds) - 1):
+            assert gthresholds[i] < gthresholds[i + 1]
+
+    def test_single_layer_unchanged(self) -> None:
+        catchment = Catchment(mean_annual_solid_precip=200.0)
+        params = Parameters(x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0, ctg=0.97, kf=2.5)
+        state = State.initialize(params, catchment)
+        expected = 0.9 * 200.0
+        assert state.snow_layer_states[0, 2] == pytest.approx(expected)
+        assert state.snow_layer_states[0, 3] == pytest.approx(expected)
+
+    def test_glocalmax_matches_gthreshold(self) -> None:
+        catchment = self._make_catchment()
+        params = Parameters(x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0, ctg=0.97, kf=2.5)
+        state = State.initialize(params, catchment)
+        np.testing.assert_array_equal(state.snow_layer_states[:, 2], state.snow_layer_states[:, 3])
+
+    def test_custom_precip_gradient_wider_spread(self) -> None:
+        params = Parameters(x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0, ctg=0.97, kf=2.5)
+        catchment_default = self._make_catchment()
+        catchment_custom = self._make_catchment(precip_gradient=0.001)  # larger gradient
+        state_default = State.initialize(params, catchment_default)
+        state_custom = State.initialize(params, catchment_custom)
+        # Larger gradient -> wider spread in gthresholds
+        spread_default = state_default.snow_layer_states[-1, 2] - state_default.snow_layer_states[0, 2]
+        spread_custom = state_custom.snow_layer_states[-1, 2] - state_custom.snow_layer_states[0, 2]
+        assert spread_custom > spread_default

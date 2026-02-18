@@ -123,22 +123,68 @@ class CemaNeigeMultiLayerState:
         cls,
         n_layers: int,
         mean_annual_solid_precip: float,
+        *,
+        layer_elevations: list[float] | np.ndarray | None = None,
+        input_elevation: float | None = None,
+        precip_gradient: float | None = None,
+        use_linear: bool = False,
     ) -> CemaNeigeMultiLayerState:
         """Create initial multi-layer state.
 
-        Each layer is initialized independently with the same mean annual
-        solid precipitation. For more accurate initialization, consider
-        adjusting mean_annual_solid_precip per layer based on elevation.
+        Each layer is initialized independently. When layer_elevations and
+        input_elevation are provided, gthreshold is scaled per band using
+        the same precipitation gradient applied to forcing.
 
         Args:
             n_layers: Number of elevation bands.
             mean_annual_solid_precip: Mean annual solid precipitation [mm/year].
-                Applied uniformly to all layers.
+            layer_elevations: Representative elevation of each layer [m].
+            input_elevation: Elevation of the forcing data [m].
+            precip_gradient: Precipitation gradient [m⁻¹]. If None, uses default.
+            use_linear: If True, use linear gradient instead of exponential.
 
         Returns:
             Initialized CemaNeigeMultiLayerState with n_layers independent states.
         """
-        layer_states = [CemaNeigeSingleLayerState.initialize(mean_annual_solid_precip) for _ in range(n_layers)]
+        import math
+
+        from .constants import GTHRESHOLD_FACTOR
+        from pydrology.utils.elevation import ELEV_CAP_PRECIP, GRAD_P_DEFAULT, GRAD_P_LINEAR_DEFAULT
+
+        base_gthreshold = GTHRESHOLD_FACTOR * mean_annual_solid_precip
+
+        can_scale = (
+            layer_elevations is not None
+            and input_elevation is not None
+            and n_layers > 1
+        )
+
+        if can_scale:
+            if precip_gradient is not None:
+                grad = precip_gradient
+            elif use_linear:
+                grad = GRAD_P_LINEAR_DEFAULT
+            else:
+                grad = GRAD_P_DEFAULT
+
+            input_eff = min(input_elevation, ELEV_CAP_PRECIP)
+            layer_states = []
+            for i in range(n_layers):
+                layer_eff = min(float(layer_elevations[i]), ELEV_CAP_PRECIP)
+                if use_linear:
+                    ratio = max(0.0, 1.0 + grad * (layer_eff - input_eff))
+                else:
+                    ratio = math.exp(grad * (layer_eff - input_eff))
+                gt = base_gthreshold * ratio
+                layer_states.append(CemaNeigeSingleLayerState(
+                    g=0.0, etg=0.0, gthreshold=gt, glocalmax=gt,
+                ))
+        else:
+            layer_states = [
+                CemaNeigeSingleLayerState.initialize(mean_annual_solid_precip)
+                for _ in range(n_layers)
+            ]
+
         return cls(layer_states=layer_states)
 
     def __len__(self) -> int:

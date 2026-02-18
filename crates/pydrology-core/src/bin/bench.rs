@@ -92,12 +92,12 @@ fn bench_hbv(sizes: &[usize]) -> Vec<(&'static str, usize, Duration)> {
 
         // Warmup
         black_box(hbv_run::run(
-            &params, &precip, &pet, &temp, None, 1, None, None, None, None, None,
+            &params, &precip, &pet, &temp, None, 1, None, None, None, None, None, None,
         ));
 
         let dur = median_time(|| {
             black_box(hbv_run::run(
-                &params, &precip, &pet, &temp, None, 1, None, None, None, None, None,
+                &params, &precip, &pet, &temp, None, 1, None, None, None, None, None, None,
             ));
         });
         results.push(("hbv", n, dur));
@@ -133,6 +133,7 @@ fn bench_cemaneige(sizes: &[usize]) -> Vec<(&'static str, usize, Duration)> {
             0.6,
             0.00041,
             150.0,
+            false,
         ));
 
         let dur = median_time(|| {
@@ -152,6 +153,7 @@ fn bench_cemaneige(sizes: &[usize]) -> Vec<(&'static str, usize, Duration)> {
                 0.6,
                 0.00041,
                 150.0,
+                false,
             ));
         });
         results.push(("cemaneige", n, dur));

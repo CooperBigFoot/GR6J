@@ -7,6 +7,8 @@ This module defines validated input containers:
 
 from __future__ import annotations
 
+import math
+import warnings
 from dataclasses import dataclass
 from enum import Enum
 
@@ -44,6 +46,18 @@ class Resolution(str, Enum):
         if not isinstance(other, Resolution):
             return NotImplemented
         return self._ordinal <= other._ordinal
+
+
+class PrecipGradientType(str, Enum):
+    """Precipitation gradient type for elevation extrapolation.
+
+    Controls how precipitation is scaled across elevation bands:
+    - exponential: P * exp(gradient * dZ) — standard for moderate ranges
+    - linear: P * (1 + gradient * dZ) — better for extreme elevation ranges
+    """
+
+    exponential = "exponential"
+    linear = "linear"
 
 
 _RESOLUTION_TOLERANCES: dict[Resolution, tuple[float, float]] = {
@@ -257,11 +271,48 @@ class ForcingData(BaseModel):
         )
 
 
+def _compute_max_precip_amplification(
+    hypsometric_curve: np.ndarray,
+    input_elevation: float,
+    precip_gradient: float | None,
+    precip_gradient_type: PrecipGradientType = PrecipGradientType.exponential,
+) -> float:
+    """Compute the maximum precipitation amplification factor across elevation bands.
+
+    Args:
+        hypsometric_curve: 101-point elevation array.
+        input_elevation: Elevation of forcing data [m].
+        precip_gradient: Precipitation gradient [m⁻¹]. If None, uses default.
+        precip_gradient_type: Type of gradient (exponential or linear).
+
+    Returns:
+        Maximum amplification factor (>= 1.0).
+    """
+    from pydrology.utils.elevation import ELEV_CAP_PRECIP, GRAD_P_DEFAULT, GRAD_P_LINEAR_DEFAULT
+
+    if precip_gradient is not None:
+        grad = precip_gradient
+    elif precip_gradient_type == PrecipGradientType.linear:
+        grad = GRAD_P_LINEAR_DEFAULT
+    else:
+        grad = GRAD_P_DEFAULT
+
+    max_elev = float(hypsometric_curve[-1])
+    eff_input = min(input_elevation, ELEV_CAP_PRECIP)
+    eff_max = min(max_elev, ELEV_CAP_PRECIP)
+    dz = eff_max - eff_input
+
+    if precip_gradient_type == PrecipGradientType.linear:
+        return max(1.0, 1.0 + grad * dz)
+    return max(1.0, math.exp(grad * dz))
+
+
 def _validate_multi_layer_config(catchment: Catchment) -> None:
     """Validate that multi-layer configuration is complete.
 
     When n_layers > 1, hypsometric_curve and input_elevation are required.
     Raises ValueError if the configuration is incomplete.
+    Issues warnings for potentially problematic configurations.
     """
     if catchment.n_layers > 1:
         if catchment.hypsometric_curve is None:
@@ -274,6 +325,30 @@ def _validate_multi_layer_config(catchment: Catchment) -> None:
             msg = f"hypsometric_curve must have 101 points (percentiles 0-100), got {len(catchment.hypsometric_curve)}"
             raise ValueError(msg)
 
+        # Soft warnings
+        if catchment.n_layers > 5:
+            warnings.warn(
+                f"n_layers={catchment.n_layers} exceeds the recommended maximum of 5 "
+                f"(Valéry et al., 2014). Performance gains diminish beyond 5 layers.",
+                UserWarning,
+                stacklevel=4,
+            )
+
+        max_amp = _compute_max_precip_amplification(
+            catchment.hypsometric_curve,
+            catchment.input_elevation,
+            catchment.precip_gradient,
+            catchment.precip_gradient_type,
+        )
+        if max_amp > 2.0:
+            warnings.warn(
+                f"Precipitation amplification factor reaches {max_amp:.1f}x at the highest "
+                f"elevation band. Consider using precip_gradient_type='linear' or a custom "
+                f"precip_gradient for extreme elevation ranges.",
+                UserWarning,
+                stacklevel=4,
+            )
+
 
 @dataclass(frozen=True)
 class Catchment:
@@ -285,8 +360,12 @@ class Catchment:
         hypsometric_curve: Optional elevation distribution for multi-layer snow.
         input_elevation: Optional elevation of forcing data [m].
         n_layers: Number of elevation bands for snow (default 1).
+            Recommended: 5 or fewer (Valéry et al., 2014).
         temp_gradient: Temperature lapse rate [°C/100m]. If None, uses default 0.6.
-        precip_gradient: Precipitation gradient [m⁻¹]. If None, uses default 0.00041.
+        precip_gradient: Precipitation gradient [m⁻¹]. If None, uses default
+            (0.00041 for exponential, 0.0004 for linear).
+        precip_gradient_type: Precipitation extrapolation method. Default is exponential.
+            Use 'linear' for catchments with extreme elevation ranges (>2000m).
     """
 
     mean_annual_solid_precip: float  # [mm/year]
@@ -297,6 +376,7 @@ class Catchment:
     n_layers: int = 1
     temp_gradient: float | None = None  # Temperature lapse rate [°C/100m]
     precip_gradient: float | None = None  # Precipitation gradient [m⁻¹]
+    precip_gradient_type: PrecipGradientType = PrecipGradientType.exponential
 
     def __post_init__(self) -> None:
         """Validate multi-layer configuration."""

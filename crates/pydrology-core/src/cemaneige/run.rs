@@ -100,10 +100,12 @@ pub fn multi_layer_step(
     input_elevation: f64,
     temp_gradient: Option<f64>,
     precip_gradient: Option<f64>,
+    use_linear_precip_gradient: Option<bool>,
 ) -> (State, Fluxes, Vec<Fluxes>) {
     let n_layers = state.n_layers();
     let t_grad = temp_gradient.unwrap_or(elevation::GRAD_T_DEFAULT);
     let p_grad = precip_gradient.unwrap_or(elevation::GRAD_P_DEFAULT);
+    let use_linear = use_linear_precip_gradient.unwrap_or(false);
 
     let mut new_layer_states = Vec::with_capacity(n_layers);
     let mut per_layer_fluxes = Vec::with_capacity(n_layers);
@@ -126,7 +128,11 @@ pub fn multi_layer_step(
 
         // Extrapolate forcing
         let layer_temp = elevation::extrapolate_temp(temp, input_elevation, layer_elevations[i], t_grad);
-        let layer_precip = elevation::extrapolate_precip(precip, input_elevation, layer_elevations[i], p_grad);
+        let layer_precip = if use_linear {
+            elevation::extrapolate_precip_linear(precip, input_elevation, layer_elevations[i], p_grad)
+        } else {
+            elevation::extrapolate_precip(precip, input_elevation, layer_elevations[i], p_grad)
+        };
 
         // Run single-layer step
         let (new_ls, fluxes) = step(&state.layer_states[i], params, layer_precip, layer_temp);
@@ -257,7 +263,7 @@ mod tests {
         let fracs = [1.0 / 3.0; 3];
 
         let (_, _, per_layer) = multi_layer_step(
-            &s, &params, 10.0, 5.0, &elevs, &fracs, 500.0, None, None,
+            &s, &params, 10.0, 5.0, &elevs, &fracs, 500.0, None, None, None,
         );
 
         // Higher elevation -> colder -> more snow
@@ -272,11 +278,46 @@ mod tests {
         let fracs = [0.5, 0.5];
 
         let (_, agg, per_layer) = multi_layer_step(
-            &s, &params, 10.0, 2.0, &elevs, &fracs, 500.0, None, None,
+            &s, &params, 10.0, 2.0, &elevs, &fracs, 500.0, None, None, None,
         );
 
         // Aggregated pliq_and_melt should be average of two layers
         let expected = 0.5 * per_layer[0].pliq_and_melt + 0.5 * per_layer[1].pliq_and_melt;
         assert!((agg.pliq_and_melt - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn multi_layer_linear_gradient_differs() {
+        let s = State::initialize(2, 100.0);
+        let params = test_params();
+        let elevs = [300.0, 1300.0];
+        let fracs = [0.5, 0.5];
+
+        let (_, agg_exp, _) = multi_layer_step(
+            &s, &params, 10.0, 2.0, &elevs, &fracs, 500.0, None, None, Some(false),
+        );
+        let (_, agg_lin, _) = multi_layer_step(
+            &s, &params, 10.0, 2.0, &elevs, &fracs, 500.0, None, None, Some(true),
+        );
+
+        // Different gradient types should produce different aggregated precip
+        assert!((agg_exp.pliq_and_melt - agg_lin.pliq_and_melt).abs() > 1e-6);
+    }
+
+    #[test]
+    fn multi_layer_linear_false_matches_default() {
+        let s = State::initialize(2, 100.0);
+        let params = test_params();
+        let elevs = [300.0, 700.0];
+        let fracs = [0.5, 0.5];
+
+        let (_, agg_none, _) = multi_layer_step(
+            &s, &params, 10.0, 2.0, &elevs, &fracs, 500.0, None, None, None,
+        );
+        let (_, agg_false, _) = multi_layer_step(
+            &s, &params, 10.0, 2.0, &elevs, &fracs, 500.0, None, None, Some(false),
+        );
+
+        assert!((agg_none.pliq_and_melt - agg_false.pliq_and_melt).abs() < 1e-10);
     }
 }

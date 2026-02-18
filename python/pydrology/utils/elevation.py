@@ -12,6 +12,7 @@ import numpy as np
 GRAD_T_DEFAULT: float = 0.6  # Temperature lapse rate [°C/100m]
 GRAD_P_DEFAULT: float = 0.00041  # Precipitation gradient [m⁻¹]
 ELEV_CAP_PRECIP: float = 4000.0  # Maximum elevation for precipitation extrapolation [m]
+GRAD_P_LINEAR_DEFAULT: float = 0.0004  # Linear precipitation gradient [m⁻¹]
 
 
 def derive_layers(hypsometric_curve: np.ndarray, n_layers: int) -> tuple[np.ndarray, np.ndarray]:
@@ -100,3 +101,31 @@ def extrapolate_precipitation(
     effective_layer_elev = min(layer_elevation, elev_cap)
 
     return input_precip * math.exp(gradient * (effective_layer_elev - effective_input_elev))
+
+
+def extrapolate_precipitation_linear(
+    input_precip: float,
+    input_elevation: float,
+    layer_elevation: float,
+    gradient: float = GRAD_P_LINEAR_DEFAULT,
+    elev_cap: float = ELEV_CAP_PRECIP,
+) -> float:
+    """Extrapolate precipitation to a different elevation using linear gradient.
+
+    Uses a linear relationship instead of exponential. Result is clamped to zero
+    to prevent negative precipitation for large negative elevation differences.
+
+    Args:
+        input_precip: Precipitation at input elevation [mm/day].
+        input_elevation: Elevation of input measurement [m].
+        layer_elevation: Target elevation for extrapolation [m].
+        gradient: Precipitation gradient [m⁻¹]. Default is GRAD_P_LINEAR_DEFAULT.
+        elev_cap: Maximum elevation for precipitation extrapolation [m].
+
+    Returns:
+        Extrapolated precipitation at target elevation [mm/day], >= 0.
+    """
+    effective_input_elev = min(input_elevation, elev_cap)
+    effective_layer_elev = min(layer_elevation, elev_cap)
+
+    return max(0.0, input_precip * (1.0 + gradient * (effective_layer_elev - effective_input_elev)))

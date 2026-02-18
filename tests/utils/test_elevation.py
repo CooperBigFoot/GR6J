@@ -9,6 +9,7 @@ import pytest
 from pydrology.utils.elevation import (
     derive_layers,
     extrapolate_precipitation,
+    extrapolate_precipitation_linear,
     extrapolate_temperature,
 )
 
@@ -169,3 +170,36 @@ class TestExtrapolatePrecipitation:
 
         # Higher gradient -> more enhancement
         assert result_custom > result_default
+
+
+class TestExtrapolatePrecipitationLinear:
+    """Tests for extrapolate_precipitation_linear function."""
+
+    def test_same_elevation_returns_input(self) -> None:
+        result = extrapolate_precipitation_linear(10.0, 500.0, 500.0)
+        assert result == pytest.approx(10.0)
+
+    def test_higher_elevation_more_precip(self) -> None:
+        result = extrapolate_precipitation_linear(10.0, 500.0, 1500.0)
+        # 10 * (1 + 0.0004 * 1000) = 14.0
+        assert result == pytest.approx(14.0)
+
+    def test_lower_elevation_less_precip(self) -> None:
+        result = extrapolate_precipitation_linear(10.0, 1000.0, 500.0)
+        # 10 * (1 + 0.0004 * (-500)) = 8.0
+        assert result == pytest.approx(8.0)
+
+    def test_clamps_to_zero(self) -> None:
+        # Very large negative ΔZ -> would go negative without clamp
+        result = extrapolate_precipitation_linear(10.0, 4000.0, 0.0, gradient=0.001)
+        # 10 * (1 + 0.001 * (-4000)) = 10 * (-3.0) = -30 -> clamped to 0
+        assert result == 0.0
+
+    def test_zero_precip_stays_zero(self) -> None:
+        result = extrapolate_precipitation_linear(0.0, 500.0, 2000.0)
+        assert result == pytest.approx(0.0)
+
+    def test_elevation_cap_applies(self) -> None:
+        # Both above cap -> no elevation difference -> no change
+        result = extrapolate_precipitation_linear(10.0, 5000.0, 6000.0)
+        assert result == pytest.approx(10.0)

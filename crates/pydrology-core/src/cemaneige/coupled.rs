@@ -125,6 +125,7 @@ pub fn coupled_step(
     temp_gradient: f64,
     precip_gradient: f64,
     skip_extrapolation: bool,
+    use_linear_precip_gradient: bool,
 ) -> (
     GR6JState,
     Vec<[f64; LAYER_STATE_SIZE]>,
@@ -156,7 +157,11 @@ pub fn coupled_step(
         } else {
             (
                 elevation::extrapolate_temp(temp, input_elevation, layer_elevations[i], temp_gradient),
-                elevation::extrapolate_precip(precip, input_elevation, layer_elevations[i], precip_gradient),
+                if use_linear_precip_gradient {
+                    elevation::extrapolate_precip_linear(precip, input_elevation, layer_elevations[i], precip_gradient)
+                } else {
+                    elevation::extrapolate_precip(precip, input_elevation, layer_elevations[i], precip_gradient)
+                },
             )
         };
 
@@ -220,6 +225,7 @@ pub fn coupled_run(
     temp_gradient: f64,
     precip_gradient: f64,
     mean_annual_solid_precip: f64,
+    use_linear_precip_gradient: bool,
 ) -> CoupledOutput {
     let n = precip.len();
     assert_eq!(
@@ -246,8 +252,25 @@ pub fn coupled_run(
     let mut snow_states: Vec<[f64; LAYER_STATE_SIZE]> = match initial_snow_states {
         Some(states) => states.to_vec(),
         None => {
-            let gthreshold = super::constants::GTHRESHOLD_FACTOR * mean_annual_solid_precip;
-            vec![[0.0, 0.0, gthreshold, gthreshold]; n_layers]
+            if !skip_extrapolation && n_layers > 1 {
+                (0..n_layers)
+                    .map(|i| {
+                        let gt = crate::elevation::compute_band_gthreshold(
+                            super::constants::GTHRESHOLD_FACTOR,
+                            mean_annual_solid_precip,
+                            input_elevation,
+                            layer_elevations[i],
+                            precip_gradient,
+                            use_linear_precip_gradient,
+                        );
+                        [0.0, 0.0, gt, gt]
+                    })
+                    .collect()
+            } else {
+                let gthreshold =
+                    super::constants::GTHRESHOLD_FACTOR * mean_annual_solid_precip;
+                vec![[0.0, 0.0, gthreshold, gthreshold]; n_layers]
+            }
         }
     };
 
@@ -287,12 +310,21 @@ pub fn coupled_run(
                         layer_elevations[i],
                         temp_gradient,
                     ),
-                    elevation::extrapolate_precip(
-                        precip[t],
-                        input_elevation,
-                        layer_elevations[i],
-                        precip_gradient,
-                    ),
+                    if use_linear_precip_gradient {
+                        elevation::extrapolate_precip_linear(
+                            precip[t],
+                            input_elevation,
+                            layer_elevations[i],
+                            precip_gradient,
+                        )
+                    } else {
+                        elevation::extrapolate_precip(
+                            precip[t],
+                            input_elevation,
+                            layer_elevations[i],
+                            precip_gradient,
+                        )
+                    },
                 )
             };
 
@@ -365,7 +397,7 @@ mod tests {
 
         let (new_gs, new_ss, snow_f, gr6j_f, _) = coupled_step(
             &gs, &ss, &gp, 0.97, 2.5, 10.0, 3.0, 2.0,
-            &uh1, &uh2, &[0.0], &[1.0], f64::NAN, 0.6, 0.00041, true,
+            &uh1, &uh2, &[0.0], &[1.0], f64::NAN, 0.6, 0.00041, true, false,
         );
 
         assert!(new_gs.production_store.is_finite());
@@ -384,7 +416,7 @@ mod tests {
 
         let (_, _, snow_f, gr6j_f, _) = coupled_step(
             &gs, &ss, &gp, 0.97, 2.5, 10.0, 3.0, 5.0,
-            &uh1, &uh2, &[0.0], &[1.0], f64::NAN, 0.6, 0.00041, true,
+            &uh1, &uh2, &[0.0], &[1.0], f64::NAN, 0.6, 0.00041, true, false,
         );
 
         // GR6J precip input should equal snow pliq_and_melt
@@ -403,7 +435,7 @@ mod tests {
         let result = coupled_run(
             &gp, 0.97, 2.5, &precip, &pet, &temp,
             None, None, 1,
-            &[0.0], &[1.0], f64::NAN, 0.6, 0.00041, 150.0,
+            &[0.0], &[1.0], f64::NAN, 0.6, 0.00041, 150.0, false,
         );
 
         assert_eq!(result.snow.pliq.len(), 5);
@@ -422,7 +454,7 @@ mod tests {
         let result = coupled_run(
             &gp, 0.97, 2.5, &precip, &pet, &temp,
             None, None, 1,
-            &[0.0], &[1.0], f64::NAN, 0.6, 0.00041, 150.0,
+            &[0.0], &[1.0], f64::NAN, 0.6, 0.00041, 150.0, false,
         );
 
         for t in 0..6 {
@@ -443,7 +475,7 @@ mod tests {
             &gp, 0.97, 2.5, &precip, &pet, &temp,
             None, None, 3,
             &[200.0, 600.0, 1000.0], &[1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0],
-            500.0, 0.6, 0.00041, 150.0,
+            500.0, 0.6, 0.00041, 150.0, false,
         );
 
         assert_eq!(result.gr6j.streamflow.len(), 3);
@@ -463,7 +495,7 @@ mod tests {
         let result = coupled_run(
             &gp, 0.97, 2.5, &precip, &pet, &temp,
             None, None, 1,
-            &[0.0], &[1.0], f64::NAN, 0.6, 0.00041, 150.0,
+            &[0.0], &[1.0], f64::NAN, 0.6, 0.00041, 150.0, false,
         );
 
         // All precip should be solid
@@ -480,7 +512,113 @@ mod tests {
         coupled_run(
             &gp, 0.97, 2.5, &[10.0, 5.0], &[3.0], &[2.0, 1.0],
             None, None, 1,
-            &[0.0], &[1.0], f64::NAN, 0.6, 0.00041, 150.0,
+            &[0.0], &[1.0], f64::NAN, 0.6, 0.00041, 150.0, false,
         );
+    }
+
+    #[test]
+    fn coupled_run_default_init_per_band() {
+        let gp = test_gr6j_params();
+        let precip = [10.0; 5];
+        let pet = [3.0; 5];
+        let temp = [2.0; 5];
+
+        let result = coupled_run(
+            &gp, 0.97, 2.5, &precip, &pet, &temp,
+            None, None, 3,
+            &[200.0, 600.0, 1000.0], &[1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0],
+            500.0, 0.6, 0.00041, 150.0, false,
+        );
+
+        // With per-band init, different layers should show different gratio behavior
+        // Just verify it runs and produces finite output
+        for t in 0..5 {
+            assert!(result.gr6j.streamflow[t].is_finite());
+        }
+        assert_eq!(result.layers.len(), 5 * 3);
+    }
+
+    #[test]
+    fn coupled_run_nan_elevation_uniform() {
+        let gp = test_gr6j_params();
+        let precip = [10.0; 3];
+        let pet = [3.0; 3];
+        let temp = [2.0; 3];
+
+        // NaN elevation -> skip_extrapolation=true -> uniform gthreshold
+        let result = coupled_run(
+            &gp, 0.97, 2.5, &precip, &pet, &temp,
+            None, None, 2,
+            &[0.0, 0.0], &[0.5, 0.5],
+            f64::NAN, 0.6, 0.00041, 150.0, false,
+        );
+
+        for t in 0..3 {
+            assert!(result.gr6j.streamflow[t].is_finite());
+        }
+    }
+
+    #[test]
+    fn coupled_step_linear_differs_from_exponential() {
+        let gp = test_gr6j_params();
+        let gs = GR6JState::initialize(&gp);
+        let ss = test_snow_states(2, 150.0);
+        let (uh1, uh2) = compute_uh_ordinates(gp.x4);
+        let elevs = [200.0, 1200.0];
+        let fracs = [0.5, 0.5];
+
+        let (_, _, snow_exp, _, _) = coupled_step(
+            &gs, &ss, &gp, 0.97, 2.5, 10.0, 3.0, 2.0,
+            &uh1, &uh2, &elevs, &fracs, 500.0, 0.6, 0.00041, false, false,
+        );
+        let (_, _, snow_lin, _, _) = coupled_step(
+            &gs, &ss, &gp, 0.97, 2.5, 10.0, 3.0, 2.0,
+            &uh1, &uh2, &elevs, &fracs, 500.0, 0.6, 0.0004, false, true,
+        );
+
+        assert!((snow_exp.pliq_and_melt - snow_lin.pliq_and_melt).abs() > 1e-6);
+    }
+
+    #[test]
+    fn coupled_run_linear_gradient() {
+        let gp = test_gr6j_params();
+        let precip = [10.0; 3];
+        let pet = [3.0; 3];
+        let temp = [2.0; 3];
+
+        let result = coupled_run(
+            &gp, 0.97, 2.5, &precip, &pet, &temp,
+            None, None, 2,
+            &[200.0, 1200.0], &[0.5, 0.5],
+            500.0, 0.6, 0.0004, 150.0, true,
+        );
+
+        for t in 0..3 {
+            assert!(result.gr6j.streamflow[t].is_finite());
+            assert!(result.gr6j.streamflow[t] >= 0.0);
+        }
+    }
+
+    #[test]
+    fn coupled_run_per_band_gthreshold_varies() {
+        let gp = test_gr6j_params();
+        let precip = [10.0; 10];
+        let pet = [3.0; 10];
+        let temp = [-2.0; 10]; // cold -> snow accumulates
+
+        let result = coupled_run(
+            &gp, 0.97, 2.5, &precip, &pet, &temp,
+            None, None, 3,
+            &[200.0, 600.0, 1200.0], &[1.0/3.0, 1.0/3.0, 1.0/3.0],
+            500.0, 0.6, 0.00041, 150.0, false,
+        );
+
+        // After 10 cold timesteps, all layers should have accumulated snow
+        // The last timestep's per-layer snow_pack should differ between layers
+        // (higher layers get more precip -> more snow)
+        let last_t = 9;
+        let low_snow = result.layers[last_t * 3].snow_pack;
+        let high_snow = result.layers[last_t * 3 + 2].snow_pack;
+        assert!(high_snow > low_snow, "higher band should have more snow: {} vs {}", high_snow, low_snow);
     }
 }

@@ -11,6 +11,7 @@ extrapolation is skipped (single-layer behavior). One code path handles all case
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, fields
 from typing import TYPE_CHECKING
 
@@ -18,7 +19,7 @@ import numpy as np
 
 from pydrology.cemaneige.constants import GTHRESHOLD_FACTOR
 from pydrology.models.gr6j import NH
-from pydrology.types import Catchment, Resolution
+from pydrology.types import Catchment, PrecipGradientType, Resolution
 
 if TYPE_CHECKING:
     from pydrology.outputs import ModelOutput
@@ -186,13 +187,40 @@ class State:
         n_layers = catchment.n_layers
 
         # Initialize snow layer states
-        gthreshold = GTHRESHOLD_FACTOR * catchment.mean_annual_solid_precip
+        base_gthreshold = GTHRESHOLD_FACTOR * catchment.mean_annual_solid_precip
         snow_layer_states = np.zeros((n_layers, SNOW_LAYER_STATE_SIZE), dtype=np.float64)
-        for i in range(n_layers):
-            snow_layer_states[i, 0] = 0.0  # g (snow pack)
-            snow_layer_states[i, 1] = 0.0  # etg (thermal state)
-            snow_layer_states[i, 2] = gthreshold  # gthreshold
-            snow_layer_states[i, 3] = gthreshold  # glocalmax
+
+        # Per-band gthreshold scaling when multi-layer with elevation data
+        can_scale = (
+            n_layers > 1
+            and catchment.hypsometric_curve is not None
+            and catchment.input_elevation is not None
+        )
+        if can_scale:
+            from pydrology.utils.elevation import ELEV_CAP_PRECIP, GRAD_P_DEFAULT, GRAD_P_LINEAR_DEFAULT, derive_layers
+
+            layer_elevations, _ = derive_layers(catchment.hypsometric_curve, n_layers)
+            use_linear = catchment.precip_gradient_type == PrecipGradientType.linear
+            if catchment.precip_gradient is not None:
+                precip_gradient = catchment.precip_gradient
+            elif use_linear:
+                precip_gradient = GRAD_P_LINEAR_DEFAULT
+            else:
+                precip_gradient = GRAD_P_DEFAULT
+            input_elev_eff = min(catchment.input_elevation, ELEV_CAP_PRECIP)
+            for i in range(n_layers):
+                layer_elev_eff = min(float(layer_elevations[i]), ELEV_CAP_PRECIP)
+                if use_linear:
+                    ratio = max(0.0, 1.0 + precip_gradient * (layer_elev_eff - input_elev_eff))
+                else:
+                    ratio = math.exp(precip_gradient * (layer_elev_eff - input_elev_eff))
+                gthreshold_i = base_gthreshold * ratio
+                snow_layer_states[i, 2] = gthreshold_i
+                snow_layer_states[i, 3] = gthreshold_i
+        else:
+            for i in range(n_layers):
+                snow_layer_states[i, 2] = base_gthreshold
+                snow_layer_states[i, 3] = base_gthreshold
 
         return cls(
             production_store=0.3 * params.x1,
@@ -365,6 +393,7 @@ def step(
     input_elevation: float | None = None,
     temp_gradient: float | None = None,
     precip_gradient: float | None = None,
+    precip_gradient_type: str | None = None,
 ) -> tuple[State, dict[str, float]]:
     """Execute one timestep of the GR6J-CemaNeige coupled model.
 
@@ -417,6 +446,7 @@ def step(
         input_elevation,
         temp_gradient,
         precip_gradient,
+        precip_gradient_type=precip_gradient_type,
     )
 
     # Reconstruct state
@@ -496,7 +526,16 @@ def run(
 
     # Set gradients (use defaults if not specified)
     temp_gradient = catchment.temp_gradient if catchment.temp_gradient is not None else GRAD_T_DEFAULT
-    precip_gradient = catchment.precip_gradient if catchment.precip_gradient is not None else GRAD_P_DEFAULT
+
+    # Resolve gradient type and default
+    precip_gradient_type_str = catchment.precip_gradient_type.value
+    if catchment.precip_gradient is not None:
+        precip_gradient = catchment.precip_gradient
+    elif catchment.precip_gradient_type == PrecipGradientType.linear:
+        from pydrology.utils.elevation import GRAD_P_LINEAR_DEFAULT
+        precip_gradient = GRAD_P_LINEAR_DEFAULT
+    else:
+        precip_gradient = GRAD_P_DEFAULT
 
     # Use NaN to signal no extrapolation
     input_elevation = catchment.input_elevation if catchment.input_elevation is not None else float("nan")
@@ -521,6 +560,7 @@ def run(
         temp_gradient,
         precip_gradient,
         catchment.mean_annual_solid_precip,
+        precip_gradient_type=precip_gradient_type_str,
     )
 
     # Build combined flux output

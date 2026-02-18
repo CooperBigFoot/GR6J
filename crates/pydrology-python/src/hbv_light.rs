@@ -67,6 +67,7 @@ define_step_result! {
     input_elevation=None,
     temp_gradient=None,
     precip_gradient=None,
+    precip_gradient_type=None,
 ))]
 fn hbv_run<'py>(
     py: Python<'py>,
@@ -81,6 +82,7 @@ fn hbv_run<'py>(
     input_elevation: Option<f64>,
     temp_gradient: Option<f64>,
     precip_gradient: Option<f64>,
+    precip_gradient_type: Option<&str>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let p_slice = checked_slice(&params, 14, "params")?;
     let p = Parameters::from_array(p_slice)
@@ -118,6 +120,17 @@ fn hbv_run<'py>(
         None => None,
     };
 
+    let use_linear = match precip_gradient_type {
+        Some("exponential") | None => false,
+        Some("linear") => true,
+        Some(other) => {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Unknown precip_gradient_type '{}'. Expected 'exponential' or 'linear'.",
+                other
+            )));
+        }
+    };
+
     let (result, zone_outputs) = run::run(
         &p,
         precip_slice,
@@ -130,6 +143,7 @@ fn hbv_run<'py>(
         input_elevation,
         temp_gradient,
         precip_gradient,
+        Some(use_linear),
     );
 
     // Build fluxes dict

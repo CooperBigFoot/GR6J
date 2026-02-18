@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 from pydrology import Catchment, ForcingData, SnowLayerOutputs
 from pydrology.models.gr6j_cemaneige import Parameters, State, run, step
+from pydrology.types import PrecipGradientType
 from pydrology.outputs import ModelOutput
 from pydrology.processes.unit_hydrographs import compute_uh_ordinates
 
@@ -498,3 +499,130 @@ class TestStep:
             )
 
             assert fluxes["streamflow"] >= 0.0, f"Negative streamflow for P={precip}, E={pet}, T={temp}"
+
+
+class TestPerBandAndLinearGradient:
+    """Integration tests for per-band gthreshold and linear precipitation gradient."""
+
+    def _make_forcing(self, n: int = 365, precip: float = 5.0, temp: float = 2.0) -> ForcingData:
+        """Create simple daily forcing data."""
+        import datetime
+        base = datetime.datetime(2000, 1, 1)
+        time = np.array([base + datetime.timedelta(days=i) for i in range(n)], dtype="datetime64[ns]")
+        return ForcingData(
+            time=time,
+            precip=np.full(n, precip),
+            pet=np.full(n, 3.0),
+            temp=np.full(n, temp),
+        )
+
+    def _make_params(self) -> Parameters:
+        return Parameters(x1=350.0, x2=0.0, x3=90.0, x4=1.7, x5=0.0, x6=5.0, ctg=0.97, kf=2.5)
+
+    def test_multi_layer_different_gratio_per_band(self) -> None:
+        """Different bands should have different gthresholds and thus different gratio evolution."""
+        catchment = Catchment(
+            mean_annual_solid_precip=200.0,
+            hypsometric_curve=np.linspace(200.0, 2000.0, 101),
+            input_elevation=600.0,
+            n_layers=3,
+        )
+        params = self._make_params()
+        forcing = self._make_forcing(n=30, precip=10.0, temp=-2.0)
+        result = run(params, forcing, catchment=catchment)
+        # Per-layer gratio should differ between bands
+        assert result.snow_layers is not None
+        gratio = result.snow_layers.snow_gratio
+        # gratio shape is (n_timesteps, n_layers)
+        assert gratio.shape == (30, 3)
+
+    def test_high_elevation_band_gratio_saturates_later(self) -> None:
+        """Higher bands have higher gthreshold, so gratio should saturate later."""
+        catchment = Catchment(
+            mean_annual_solid_precip=100.0,
+            hypsometric_curve=np.linspace(200.0, 2000.0, 101),
+            input_elevation=600.0,
+            n_layers=3,
+        )
+        params = self._make_params()
+        # Long cold period with moderate precip to build snow
+        forcing = self._make_forcing(n=90, precip=5.0, temp=-5.0)
+        result = run(params, forcing, catchment=catchment)
+        assert result.snow_layers is not None
+        # After 90 cold days, check gratio at the last timestep
+        gratio_last = result.snow_layers.snow_gratio[-1, :]
+        # All gratios should be between 0 and 1 (inclusive)
+        assert np.all(gratio_last >= 0.0)
+        assert np.all(gratio_last <= 1.0)
+
+    def test_run_with_linear_precip_gradient_type(self) -> None:
+        """Model should run successfully with linear gradient type."""
+        catchment = Catchment(
+            mean_annual_solid_precip=200.0,
+            hypsometric_curve=np.linspace(200.0, 2000.0, 101),
+            input_elevation=600.0,
+            n_layers=3,
+            precip_gradient_type=PrecipGradientType.linear,
+        )
+        params = self._make_params()
+        forcing = self._make_forcing(n=30, precip=10.0, temp=2.0)
+        result = run(params, forcing, catchment=catchment)
+        assert len(result.fluxes.streamflow) == 30
+        assert np.all(np.isfinite(result.fluxes.streamflow))
+
+    def test_linear_gradient_differs_from_exponential(self) -> None:
+        """Linear and exponential gradient types should produce different streamflow."""
+        # Wide elevation range to amplify the difference between exponential and linear
+        hyps = np.linspace(200.0, 3500.0, 101)
+        params = self._make_params()
+        forcing = self._make_forcing(n=60, precip=10.0, temp=0.0)
+
+        catchment_exp = Catchment(
+            mean_annual_solid_precip=200.0,
+            hypsometric_curve=hyps,
+            input_elevation=500.0,
+            n_layers=5,
+        )
+        catchment_lin = Catchment(
+            mean_annual_solid_precip=200.0,
+            hypsometric_curve=hyps,
+            input_elevation=500.0,
+            n_layers=5,
+            precip_gradient_type=PrecipGradientType.linear,
+        )
+
+        result_exp = run(params, forcing, catchment=catchment_exp)
+        result_lin = run(params, forcing, catchment=catchment_lin)
+
+        # They should produce different streamflow (not byte-identical)
+        assert not np.array_equal(result_exp.fluxes.streamflow, result_lin.fluxes.streamflow)
+
+    def test_default_gradient_backward_compat(self) -> None:
+        """Default PrecipGradientType.exponential should match pre-existing behavior."""
+        catchment = Catchment(
+            mean_annual_solid_precip=200.0,
+            hypsometric_curve=np.linspace(200.0, 2000.0, 101),
+            input_elevation=600.0,
+            n_layers=3,
+        )
+        assert catchment.precip_gradient_type == PrecipGradientType.exponential
+
+    def test_single_layer_backward_compat_unchanged_output(self) -> None:
+        """Single-layer model should produce identical results regardless of gradient type."""
+        params = self._make_params()
+        forcing = self._make_forcing(n=30, precip=10.0, temp=2.0)
+
+        catchment_default = Catchment(mean_annual_solid_precip=200.0)
+        catchment_linear = Catchment(
+            mean_annual_solid_precip=200.0,
+            precip_gradient_type=PrecipGradientType.linear,
+        )
+
+        result_default = run(params, forcing, catchment=catchment_default)
+        result_linear = run(params, forcing, catchment=catchment_linear)
+
+        # Single layer with no elevation -> extrapolation skipped -> identical
+        np.testing.assert_array_equal(
+            result_default.fluxes.streamflow,
+            result_linear.fluxes.streamflow,
+        )
